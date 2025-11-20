@@ -7,6 +7,11 @@ from torch_geometric.nn import GCNConv, GINConv, global_mean_pool
 from sklearn.metrics import accuracy_score, f1_score
 import itertools
 
+from torch_geometric.explain import Explainer, GNNExplainer, ModelConfig, Explanation
+from torch_geometric.explain.metric import fidelity
+import copy
+import statistics
+
 
 # ============================================================
 # 1. LOAD DATASET
@@ -193,3 +198,94 @@ run_experiment(GIN, "GIN")
 sorted_results = sorted(results, key=lambda x: x["TestAcc"], reverse=True)
 for r in sorted_results[:10]:
     print(r)
+
+
+# ============================================================
+# 7. EXPLAINABILITY FOR BEST MODELS (Q-4)
+# ============================================================
+
+# Function to retrain a model with given params and get best state
+def get_trained_model(ModelClass, h, L, d, lr):
+    model = ModelClass(hidden_dim=h, num_layers=L, dropout=d)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    best_val = 0
+    best_state = None
+    for epoch in range(50):
+        train_epoch(model, optimizer, train_loader)
+        val_acc, _ = evaluate(model, val_loader)
+        if val_acc > best_val:
+            best_val = val_acc
+            best_state = copy.deepcopy(model.state_dict())
+    model.load_state_dict(best_state)
+    return model
+
+# Get best configs
+best_gcn = max([r for r in results if r['Model'] == 'GCN'], key=lambda x: x['TestAcc'])
+best_gin = max([r for r in results if r['Model'] == 'GIN'], key=lambda x: x['TestAcc'])
+
+# Retrain best models
+best_gcn_model = get_trained_model(GCN, best_gcn['HiddenDim'], best_gcn['Layers'], best_gcn['Dropout'], best_gcn['LR'])
+best_gin_model = get_trained_model(GIN, best_gin['HiddenDim'], best_gin['Layers'], best_gin['Dropout'], best_gin['LR'])
+
+# Single-graph loader for explanations
+explain_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+# Function to explain and compute metrics for a model
+def explain_model(model, model_name, num_explanations=5):
+    model.eval()
+    model_config = ModelConfig(
+        mode='multiclass_classification',
+        task_level='graph',
+        return_type='raw'  # Models output logits
+    )
+    explainer = Explainer(
+        model=model,
+        algorithm=GNNExplainer(epochs=200),
+        explanation_type='model',
+        node_mask_type='attributes',  # Explains node feature importance
+        edge_mask_type='object',  # Explains edge presence
+        model_config=model_config,
+    )
+    
+    fid_plus_list, fid_minus_list, sparsity_list, runtime_list = [], [], [], []
+    explained_count = 0
+    
+    for data in explain_loader:
+        if explained_count >= num_explanations:
+            break
+        out = model(data.x, data.edge_index, data.batch)
+        pred = out.argmax(dim=1).item()
+        if pred != data.y.item():
+            continue  # Only explain correct predictions
+        
+        start_time = time.time()
+        explanation = explainer(data.x, data.edge_index, batch=data.batch)
+        runtime = time.time() - start_time
+        fid_minus, fid_plus = fidelity(explainer, explanation)
+        
+        # Sparsity: average for edge and node masks (1 - normalized important fraction)
+        edge_sparsity = 1 - explanation.edge_mask.sigmoid().mean().item()
+        node_feat_sparsity = 1 - explanation.node_mask.sigmoid().mean().item() if 'node_mask' in explanation else 0
+        sparsity = (edge_sparsity + node_feat_sparsity) / 2
+        
+        fid_plus_list.append(fid_plus)
+        fid_minus_list.append(fid_minus)
+        sparsity_list.append(sparsity)
+        runtime_list.append(runtime)
+        explained_count += 1
+    
+    print(f"\n{model_name} Explainability Metrics (Avg over {explained_count} graphs):")
+    print(f"Fidelity+: {statistics.mean(fid_plus_list):.4f}")
+    print(f"Fidelity-: {statistics.mean(fid_minus_list):.4f}")
+    print(f"Sparsity: {statistics.mean(sparsity_list):.4f}")
+    print(f"Runtime (sec per explanation): {statistics.mean(runtime_list):.4f}")
+    return {
+        'Fidelity+': statistics.mean(fid_plus_list),
+        'Fidelity-': statistics.mean(fid_minus_list),
+        'Sparsity': statistics.mean(sparsity_list),
+        'Runtime': statistics.mean(runtime_list)
+    }
+
+# Run for best models
+gcn_metrics = explain_model(best_gcn_model, "Best GCN")
+gin_metrics = explain_model(best_gin_model, "Best GIN")
