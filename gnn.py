@@ -140,7 +140,7 @@ def evaluate(model, loader):
 
 hidden_dims  = [32, 64]
 num_layers   = [2, 3, 4]
-dropouts     = [0.0, 0.2]
+dropouts     = [0.0, 0.2, 0.75]
 lrs          = [0.001, 0.005]
 
 results = []
