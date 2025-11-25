@@ -56,6 +56,17 @@ This script calls `data_access/mutag.py`, which uses `torch_geometric.datasets.T
   python q1_frequent_subgraphs_classic_ml/package_outputs.py
   ```
   The first command mines frequent subgraphs per class (support thresholds configurable via `--support-thresholds`) and drops artifacts into `q1_frequent_subgraphs_classic_ml/artifacts/` (ignored in git). The second automatically scans those artifacts, scales the number of retained motifs per support ratio (`--base-top-k-per-class` controls the cap; pass `--disable-ratio-scaling` or `0` to keep all) and writes motif-count feature matrices for train/val/test under `q1_frequent_subgraphs_classic_ml/features/` (add `--binary-features` if you only want presence/absence). Each `feature_config.json` now logs how many motifs were kept plus the time it took to build that feature set. The third trains Random Forest & SVM baselines across every feature set and saves accuracy/precision/recall/F1 along with training + inference runtimes and feature dimensionality to `q1_frequent_subgraphs_classic_ml/results/`. Finally, `package_outputs.py` compresses each support ratio’s artifacts/features into `.zip` files in `q1_frequent_subgraphs_classic_ml/archives/` so we can check in representative outputs without relying on Git LFS.
+
+  **Current Q1 metrics (top-50 motifs per class, count features):**
+
+  | Support | Best Model | Val Acc | Test Acc | Val F1 | Test F1 | Train Time (s) |
+  |---------|------------|---------|----------|--------|---------|----------------|
+  | 0.10    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.16 |
+  | 0.20    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.14 |
+  | 0.30    | Linear SVM (C=0.1) | 0.94 | 0.80 | 0.935 | 0.780 | 0.14 |
+  | 0.40    | Random Forest (100 trees) | 0.89 | 0.75 | 0.862 | 0.715 | 0.10 |
+
+  Raw metrics (including precision/recall, inference time, and exact hyperparameters) live in `q1_frequent_subgraphs_classic_ml/results/classic_ml_support_XX.json` for each support ratio.
 - **GNNs (Q2):**
   ```bash
   python q2_gnn/gnn.py
