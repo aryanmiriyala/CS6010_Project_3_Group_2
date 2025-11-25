@@ -1,0 +1,132 @@
+[
+  {
+    "model": "RandomForest",
+    "params": {
+      "n_estimators": 100,
+      "max_depth": null
+    },
+    "train_time_sec": 0.09093284606933594,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "RandomForest",
+    "params": {
+      "n_estimators": 200,
+      "max_depth": null
+    },
+    "train_time_sec": 0.18039989471435547,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "RandomForest",
+    "params": {
+      "n_estimators": 100,
+      "max_depth": 10
+    },
+    "train_time_sec": 0.09739017486572266,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "RandomForest",
+    "params": {
+      "n_estimators": 200,
+      "max_depth": 20
+    },
+    "train_time_sec": 0.17728805541992188,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "LinearSVM",
+    "params": {
+      "type": "linear",
+      "C": 0.1
+    },
+    "train_time_sec": 0.00140380859375,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "LinearSVM",
+    "params": {
+      "type": "linear",
+      "C": 1.0
+    },
+    "train_time_sec": 0.0016350746154785156,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "RBFSVM",
+    "params": {
+      "type": "rbf",
+      "C": 1.0,
+      "gamma": "scale"
+    },
+    "train_time_sec": 0.001157999038696289,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  },
+  {
+    "model": "RBFSVM",
+    "params": {
+      "type": "rbf",
+      "C": 5.0,
+      "gamma": "scale"
+    },
+    "train_time_sec": 0.0011031627655029297,
+    "val_accuracy": 0.7222222222222222,
+    "val_precision": 0.625,
+    "val_recall": 0.5615384615384615,
+    "val_f1": 0.5566502463054187,
+    "test_accuracy": 0.6,
+    "test_precision": 0.4901960784313726,
+    "test_recall": 0.4945054945054945,
+    "test_f1": 0.4666666666666667
+  }
+]

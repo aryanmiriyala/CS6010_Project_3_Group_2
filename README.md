@@ -37,7 +37,7 @@ This script calls `data_access/mutag.py`, which uses `torch_geometric.datasets.T
 
 - `data_download/download_mutag.py` – convenience entrypoint to fetch MUTAG before running experiments.
 - `data_access/mutag.py` – shared loader returning consistent train/val/test splits and PyG data loaders for every pipeline.
-- `q1_frequent_subgraphs_classic_ml/` – hosts the standalone mining/classic ML pipeline (see `frequent_subgraph_mining.py`).
+- `q1_frequent_subgraphs_classic_ml/` – hosts the standalone mining/classic ML pipeline (see `frequent_subgraph_mining.py`). Generated outputs (`artifacts/`, `features/`, `results/`) are gitignored because the mined pattern JSONs can exceed GitHub’s file-size limits; regenerate them locally by running the scripts below.
 - `q2_gnn/` – contains `gnn.py`, now importing the shared loader to build/train GCN & GIN models, run the hyperparameter ablations, and kick off explainability passes for the best runs.
 - `q3_comparison/`, `q4_explainability/` – reserved for scripts/notebooks that will aggregate metrics and run post-hoc explainers once Q1 and Q2 output standardized logs.
 - `data/` – houses the MUTAG raw/processed tensors downloaded by PyG (kept for reproducibility).
@@ -50,8 +50,9 @@ This script calls `data_access/mutag.py`, which uses `torch_geometric.datasets.T
   ```bash
   python q1_frequent_subgraphs_classic_ml/frequent_subgraph_mining.py
   python q1_frequent_subgraphs_classic_ml/construct_features.py
+  python q1_frequent_subgraphs_classic_ml/train_classic_models.py
   ```
-  The first command mines frequent subgraphs per class (support thresholds configurable via `--support-thresholds`) and drops artifacts into `q1_frequent_subgraphs_classic_ml/artifacts/`. The second command converts the mined patterns into binary feature matrices for train/val/test under `q1_frequent_subgraphs_classic_ml/features/`, ready for classic model training.
+  The first command mines frequent subgraphs per class (support thresholds configurable via `--support-thresholds`) and drops artifacts into `q1_frequent_subgraphs_classic_ml/artifacts/` (ignored in git). The second automatically scans those artifacts (all support ratios, top 50 patterns per class by default) and writes binary feature matrices for train/val/test under `q1_frequent_subgraphs_classic_ml/features/`. The third trains Random Forest & SVM baselines across every feature set and saves metrics to `q1_frequent_subgraphs_classic_ml/results/` (also gitignored).
 - **GNNs (Q2):**
   ```bash
   python q2_gnn/gnn.py
@@ -68,7 +69,7 @@ As other questions are implemented, keep their code (trainers, evaluation script
 
 ## Next Steps
 
-- Extend `q1_frequent_subgraphs_classic_ml` beyond the initial gSpan run: persist mined motifs, build feature matrices, and add classical models plus ablation sweeps.
+- Extend `q1_frequent_subgraphs_classic_ml` beyond the initial gSpan run: persist mined motifs, build feature matrices, and add classical models plus ablation sweeps (scripts now exist; rerun them locally as outputs remain gitignored).
 - Teach `q2_gnn/gnn.py` to export metrics/checkpoints to feed into Q3 comparisons.
 - Populate `q3_comparison/` and `q4_explainability/` with scripts that ingest the standardized outputs and produce tables/plots for the report.
 

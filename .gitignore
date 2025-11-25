@@ -1,4 +1,5 @@
 __pycache__/
 *.pyc
 venv/
-.q1_tmp/
+/q1_frequent_subgraphs_classic_ml/artifacts/
+/q1_frequent_subgraphs_classic_ml/features/

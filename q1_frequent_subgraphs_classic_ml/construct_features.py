@@ -1,8 +1,7 @@
-import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import networkx as nx
 import numpy as np
@@ -15,8 +14,12 @@ if str(REPO_ROOT) not in sys.path:
 from data_access.mutag import load_mutag
 from q1_frequent_subgraphs_classic_ml.graph_utils import pyg_data_to_nx
 
+ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+FEATURES_DIR = Path(__file__).resolve().parent / "features"
+TOP_K_PER_CLASS: int | None = 50  # set to None or 0 to keep all patterns
 
-def load_patterns(artifacts_dir: Path, support_ratio: float, top_k: int) -> List[Dict]:
+
+def load_patterns(artifacts_dir: Path, support_ratio: float, top_k: int | None) -> List[Dict]:
     selected = []
     ratio_str = f"{support_ratio:.2f}"
     for label in sorted(p.name for p in artifacts_dir.glob("class_*") if p.is_dir()):
@@ -26,7 +29,7 @@ def load_patterns(artifacts_dir: Path, support_ratio: float, top_k: int) -> List
             raise FileNotFoundError(f"Missing patterns file: {patterns_path}")
         payload = json.loads(patterns_path.read_text())
         patterns = sorted(payload["patterns"], key=lambda p: p["support"], reverse=True)
-        trimmed = patterns[:top_k] if top_k > 0 else patterns
+        trimmed = patterns if top_k in (None, 0) else patterns[:top_k]
         for patt in trimmed:
             selected.append(
                 {
@@ -59,45 +62,21 @@ def compute_features(graphs: List[nx.Graph], pattern_graphs: List[nx.Graph]) -> 
     return features
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Construct feature matrices from mined patterns.")
-    parser.add_argument(
-        "--support-ratio",
-        type=float,
-        default=0.3,
-        help="Support ratio used when mining patterns (must match available artifacts).",
-    )
-    parser.add_argument(
-        "--top-k-per-class",
-        type=int,
-        default=50,
-        help="Number of top patterns (by support) to keep per class.",
-    )
-    parser.add_argument(
-        "--artifacts-dir",
-        type=Path,
-        default=Path(__file__).resolve().parent / "artifacts",
-        help="Directory containing mined pattern artifacts.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path(__file__).resolve().parent / "features",
-        help="Directory to save feature matrices.",
-    )
-    return parser.parse_args()
+def discover_support_ratios(artifacts_dir: Path) -> List[float]:
+    ratios: Set[float] = set()
+    for class_dir in artifacts_dir.glob("class_*"):
+        for support_dir in class_dir.glob("support_*"):
+            try:
+                ratios.add(float(support_dir.name.split("_")[1]))
+            except ValueError:
+                continue
+    return sorted(ratios)
 
 
 def main():
-    args = parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    FEATURES_DIR.mkdir(parents=True, exist_ok=True)
 
     dataset, splits, _ = load_mutag(batch_size=1, shuffle=False)
-    patterns = load_patterns(args.artifacts_dir, args.support_ratio, args.top_k_per_class)
-    if not patterns:
-        raise RuntimeError("No patterns loaded. Ensure artifacts exist for the given support ratio.")
-
-    pattern_graphs = [pattern_to_nx(p) for p in patterns]
     datasets = {
         "train": [pyg_data_to_nx(data) for data in splits.train],
         "val": [pyg_data_to_nx(data) for data in splits.val],
@@ -109,23 +88,42 @@ def main():
         "test": [int(data.y.item()) for data in splits.test],
     }
 
-    for split_name, graphs in datasets.items():
-        feats = compute_features(graphs, pattern_graphs)
-        np.savez(
-            args.output_dir / f"{split_name}_features.npz",
-            features=feats,
-            labels=np.array(labels[split_name], dtype=np.int64),
-        )
+    support_ratios = discover_support_ratios(ARTIFACTS_DIR)
+    if not support_ratios:
+        raise RuntimeError(f"No support directories found in {ARTIFACTS_DIR}")
 
-    metadata = {
-        "support_ratio": args.support_ratio,
-        "top_k_per_class": args.top_k_per_class,
-        "num_patterns": len(patterns),
-        "pattern_metadata": patterns,
-    }
-    with open(args.output_dir / "feature_config.json", "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-    print(f"Saved binary presence features to {args.output_dir}")
+    for support_ratio in support_ratios:
+        print(f"\n=== Constructing features for support ratio {support_ratio:.2f} ===")
+        try:
+            patterns = load_patterns(ARTIFACTS_DIR, support_ratio, TOP_K_PER_CLASS)
+        except FileNotFoundError as exc:
+            print(f"Skipping support ratio {support_ratio:.2f}: {exc}")
+            continue
+        if not patterns:
+            print(f"No patterns found for support ratio {support_ratio:.2f}, skipping.")
+            continue
+
+        pattern_graphs = [pattern_to_nx(p) for p in patterns]
+        support_dir = FEATURES_DIR / f"support_{support_ratio:.2f}"
+        support_dir.mkdir(parents=True, exist_ok=True)
+
+        for split_name, graphs in datasets.items():
+            feats = compute_features(graphs, pattern_graphs)
+            np.savez(
+                support_dir / f"{split_name}_features.npz",
+                features=feats,
+                labels=np.array(labels[split_name], dtype=np.int64),
+            )
+
+        metadata = {
+            "support_ratio": support_ratio,
+            "top_k_per_class": TOP_K_PER_CLASS,
+            "num_patterns": len(patterns),
+            "pattern_metadata": patterns,
+        }
+        with open(support_dir / "feature_config.json", "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+        print(f"Saved features for support ratio {support_ratio:.2f} to {support_dir.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":
