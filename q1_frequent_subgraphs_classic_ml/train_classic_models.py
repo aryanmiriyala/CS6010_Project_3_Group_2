@@ -1,8 +1,9 @@
+import argparse
 import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -45,28 +46,59 @@ def load_feature_set(support_ratio: float) -> FeatureSet:
 
 
 def evaluate_model(model, X_val, y_val, X_test, y_test) -> Dict[str, float]:
+    start = time.time()
     val_pred = model.predict(X_val)
+    val_inference = time.time() - start
+
+    start = time.time()
     test_pred = model.predict(X_test)
+    test_inference = time.time() - start
+
     metrics = {
         "val_accuracy": accuracy_score(y_val, val_pred),
         "val_precision": precision_score(y_val, val_pred, average="macro", zero_division=0),
         "val_recall": recall_score(y_val, val_pred, average="macro", zero_division=0),
         "val_f1": f1_score(y_val, val_pred, average="macro", zero_division=0),
+        "val_inference_time_sec": val_inference,
         "test_accuracy": accuracy_score(y_test, test_pred),
         "test_precision": precision_score(y_test, test_pred, average="macro", zero_division=0),
         "test_recall": recall_score(y_test, test_pred, average="macro", zero_division=0),
         "test_f1": f1_score(y_test, test_pred, average="macro", zero_division=0),
+        "test_inference_time_sec": test_inference,
     }
     return metrics
 
 
-def run_random_forest(feature_set: FeatureSet) -> List[Dict]:
-    configs = [
-        {"n_estimators": 100, "max_depth": None},
-        {"n_estimators": 200, "max_depth": None},
-        {"n_estimators": 100, "max_depth": 10},
-        {"n_estimators": 200, "max_depth": 20},
-    ]
+DEFAULT_RF_CONFIGS: Sequence[Dict] = (
+    {"n_estimators": 100, "max_depth": None},
+    {"n_estimators": 200, "max_depth": None},
+    {"n_estimators": 100, "max_depth": 10},
+    {"n_estimators": 200, "max_depth": 20},
+)
+DEFAULT_SVM_CONFIGS: Sequence[Dict] = (
+    {"type": "linear", "C": 0.1},
+    {"type": "linear", "C": 1.0},
+    {"type": "rbf", "C": 1.0, "gamma": "scale"},
+    {"type": "rbf", "C": 5.0, "gamma": "scale"},
+)
+
+
+def load_config_overrides(path: str | None, default: Sequence[Dict]) -> List[Dict]:
+    if path is None:
+        return [cfg.copy() for cfg in default]
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, list):
+        raise ValueError(f"Config override at {path} must be a list of dictionaries")
+    normalized: List[Dict] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise ValueError(f"Invalid config entry in {path}: {entry}")
+        normalized.append(entry)
+    return normalized
+
+
+def run_random_forest(feature_set: FeatureSet, feature_dim: int, configs: Sequence[Dict]) -> List[Dict]:
     results = []
     for cfg in configs:
         start = time.time()
@@ -89,19 +121,14 @@ def run_random_forest(feature_set: FeatureSet) -> List[Dict]:
             "model": "RandomForest",
             "params": cfg,
             "train_time_sec": train_time,
+            "feature_dim": feature_dim,
         }
         run.update(metrics)
         results.append(run)
     return results
 
 
-def run_svm(feature_set: FeatureSet) -> List[Dict]:
-    configs = [
-        {"type": "linear", "C": 0.1},
-        {"type": "linear", "C": 1.0},
-        {"type": "rbf", "C": 1.0, "gamma": "scale"},
-        {"type": "rbf", "C": 5.0, "gamma": "scale"},
-    ]
+def run_svm(feature_set: FeatureSet, feature_dim: int, configs: Sequence[Dict]) -> List[Dict]:
     results = []
     for cfg in configs:
         if cfg["type"] == "linear":
@@ -123,6 +150,7 @@ def run_svm(feature_set: FeatureSet) -> List[Dict]:
             "model": "LinearSVM" if cfg["type"] == "linear" else "RBFSVM",
             "params": cfg,
             "train_time_sec": train_time,
+            "feature_dim": feature_dim,
         }
         run.update(metrics)
         results.append(run)
@@ -137,7 +165,25 @@ def save_results(support_ratio: float, runs: List[Dict]) -> None:
     print(f"Saved classic ML results for support {support_ratio:.2f} to {output_path.relative_to(REPO_ROOT)}")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train classic ML models on mined motif features.")
+    parser.add_argument(
+        "--rf-config",
+        type=str,
+        help="Path to JSON list overriding the Random Forest hyperparameter grid.",
+    )
+    parser.add_argument(
+        "--svm-config",
+        type=str,
+        help="Path to JSON list overriding the SVM hyperparameter grid.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    rf_configs = load_config_overrides(args.rf_config, DEFAULT_RF_CONFIGS)
+    svm_configs = load_config_overrides(args.svm_config, DEFAULT_SVM_CONFIGS)
     support_ratios = sorted(
         float(p.name.split("_")[1]) for p in FEATURES_DIR.glob("support_*") if p.is_dir()
     )
@@ -147,15 +193,17 @@ def main():
     for support_ratio in support_ratios:
         print(f"\n=== Training classic models for support ratio {support_ratio:.2f} ===")
         feature_set = load_feature_set(support_ratio)
+        feature_dim = feature_set.metadata.get("num_patterns", feature_set.train_X.shape[1])
         runs = []
-        runs.extend(run_random_forest(feature_set))
-        runs.extend(run_svm(feature_set))
+        runs.extend(run_random_forest(feature_set, feature_dim, rf_configs))
+        runs.extend(run_svm(feature_set, feature_dim, svm_configs))
         for run in runs:
             print(
                 f"{run['model']} {run['params']} | "
                 f"Val Acc {run['val_accuracy']:.3f} F1 {run['val_f1']:.3f} | "
                 f"Test Acc {run['test_accuracy']:.3f} F1 {run['test_f1']:.3f} | "
-                f"Train {run['train_time_sec']:.2f}s"
+                f"Train {run['train_time_sec']:.2f}s "
+                f"ValInfer {run['val_inference_time_sec']:.3f}s TestInfer {run['test_inference_time_sec']:.3f}s"
             )
         save_results(support_ratio, runs)
 
