@@ -1,115 +1,75 @@
-# Title: Project 3 - Large Scale Supervised Machine Learning 
-This is the README file for Project 3 of CS 6010 Data Science Programming
-# Group 2 {Emily Massie, Aryan, Josh, Jashu, Kyle}
----------------------------------------------------------------
+# Project 3 – Large-Scale Supervised Graph Learning
 
-# Introduction and Requirements
+Group 2 · Emily Massie, Aryan, Josh, Jashu, Kyle · Due 11/20/2025
 
-Contained in this series of folders are the base code for the programs executed and the datasets as txts and pt files. The main goal for this project was to construct feature vectors using gSpan, select two classical ML and GNN algorithms, run the MUTAG dataset through each algorithm (using the feature vectors for the classical ML algorithms), run ablation studies on each algorithm, compare classical ML algorithms with GNN algorithms and understand their similarities and differences, and run an explaination method to evaluate explanation quality. The MUTAG dataset that we used is mainly used for machine learning tasks. They are specifically a collection of nitroaromatic compounds.
+This repo houses our four deliverables on the MUTAG dataset:
 
-The code we provided requires:
-    - torch>=2.9.1
-    - torch_geometric
-    - scikit-learn>=1.7.2
-    - ipykernel
-    - gspan-mining
-    - pandas
+1. **Q1 – Frequent Subgraph Mining + Classic ML** (`q1_frequent_subgraphs_classic_ml/`)
+2. **Q2 – Graph Neural Networks** (`q2_gnn/`)
+3. **Q3 – Comparison of the two approaches** (`q3_comparison/`)
+4. **Q4 – Explainability for the GNN models** (`q4_explainability/`)
 
-# File Path Locations
+Shared utilities and the MUTAG download script live at the repo root so each workstream can stay focused on its pipelines.
 
-## data\MUTAG
-    - Contains the actual MUTAG dataset used for the code
+---
 
-    - It is split into two parts: processed and raw. We opted to use the raw format (which are all txt files) for this project
+## Setup
 
-## GNN
-    - This contains the code for the GNN portion of the project.
-
-    - The program file for creating the GNN's, running ablation studies, and running the explanation method can be found in /CS6010_Project_3_Group_2/GNN/gnn.py
-
-## Classical_ML
-    - This contains the code for the Classical ML portion of the project.
-
-    - The program file for creating the classical ML algorithms and running ablation studies can be found in /CS6010_Project_3_Group_2/Classical_ML/ml_classy.ipynb.
-
-# MUTAG Properties
-
-
-# Research Questions
-
-
-# Methodology
-The main tool we used for this project was Python. There were multiple libraries that were used.
-
-Below are all the steps we took to getting our results:
-
-    1. Download the datasets from their respective links using TUDataset
-    2. Made sure that all the required libraries are installed
-    3. We decided on the GNN skews and classical ML algorithms that we will use
-    4. Once this was done, some research was done to make sure that we knew what we were doing when it came building these ML algorithms
-    5. After a brief research period, we were able to execute the models, conduct ablation studies, and make explainers (for GNN)
-    6. Once this was done, we used the output from the programs and looked into them for analysis and extrapolated results
-
-# Dataset
-Located in '/data' folder
-Contains the raw and processed files for the MUTAG dataset.
-
-# (Q1) Frequent Subgraph mining & Classic ML Models
-
-
-# (Q2) Graph Neural Network (GNNs)
-Located in 'gnn.py'
-
-## GCN
-
-
-## GIN
-
-
-# (Q3) Comparison
-
-# (Q4) Explainability
-
-
-# Setup and Execution 
-
-## Virtual Enviroment
+```bash
 python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r pyrequirements.txt
+```
 
-### Activate Virtual Enviroment
-#### windows (Powershell)
-    venv\Scripts\Activate.ps1
+### Download / Cache MUTAG
 
-#### windows (CMD)
-    venv\Scripts\activate.bat
+We now keep dataset handling in one place. Run this once (or whenever you need to refresh the cache):
 
-#### Linux
-    source venv/activate
+```bash
+python data_download/download_mutag.py
+```
 
-### Install Requirments
-    pip install -r pyrequirments
+This script calls `data_access/mutag.py`, which uses `torch_geometric.datasets.TUDataset` to pull the dataset into `./data/MUTAG/`.
 
-#### Deactivate Envirioment
-    deactivate
+---
 
-# Results and Conclusions
+## Repository Layout
 
-The programs for both the datasets run. The execution time was measured for each program and can be found above. The outputs for each program (including the PNGs and the TXT reports) were used to analyze, compare, and contrast the two graph network datasets. 
+- `data_download/download_mutag.py` – convenience entrypoint to fetch MUTAG before running experiments.
+- `data_access/mutag.py` – shared loader returning consistent train/val/test splits and PyG data loaders for every pipeline.
+- `q1_frequent_subgraphs_classic_ml/` – hosts the standalone mining/classic ML pipeline (see `frequent_subgraph_mining.py`).
+- `q2_gnn/` – contains `gnn.py`, now importing the shared loader to build/train GCN & GIN models, run the hyperparameter ablations, and kick off explainability passes for the best runs.
+- `q3_comparison/`, `q4_explainability/` – reserved for scripts/notebooks that will aggregate metrics and run post-hoc explainers once Q1 and Q2 output standardized logs.
+- `data/` – houses the MUTAG raw/processed tensors downloaded by PyG (kept for reproducibility).
 
-## Run (from root, with venv active)
+---
 
-First, you must cd into the respective folders to execute the Python programs. The steps to do so can be seen below:
-    - To execute the gnn.py file, use the following command: cd GNN
-    - To execute the ml_classy.ipynb file, use the following command: cd Classical ML
+## Running the Existing Pipelines
 
-Once you cd into the respective folders, you can use one of the two bash commands below to run the respective files:
+- **Classical (Q1):**
+  ```bash
+  python q1_frequent_subgraphs_classic_ml/frequent_subgraph_mining.py
+  python q1_frequent_subgraphs_classic_ml/construct_features.py
+  ```
+  The first command mines frequent subgraphs per class (support thresholds configurable via `--support-thresholds`) and drops artifacts into `q1_frequent_subgraphs_classic_ml/artifacts/`. The second command converts the mined patterns into binary feature matrices for train/val/test under `q1_frequent_subgraphs_classic_ml/features/`, ready for classic model training.
+- **GNNs (Q2):**
+  ```bash
+  python q2_gnn/gnn.py
+  ```
+  The script now:
+  - pulls MUTAG splits via `data_access.mutag.load_mutag(...)`
+  - trains GCN & GIN over the configured hyperparameter grid
+  - prints per-config validation/test accuracy and runtime
+  - retrains the best configs and runs GNNExplainer on a few correctly classified graphs
 
-    ```bash
-    python gnn.py             
-    python ml_classy.ipynb
-    ```
+As other questions are implemented, keep their code (trainers, evaluation scripts, explainability notebooks) inside the respective `Q*_.../` directories so each deliverable stays isolated yet consistent via the shared data utilities.
 
-# Results and Conclusions
+---
 
-The programs for both the dataset runs and build out ML models. The outputs for each program were used for our results, which can all be seen in our report. 
+## Next Steps
 
+- Extend `q1_frequent_subgraphs_classic_ml` beyond the initial gSpan run: persist mined motifs, build feature matrices, and add classical models plus ablation sweeps.
+- Teach `q2_gnn/gnn.py` to export metrics/checkpoints to feed into Q3 comparisons.
+- Populate `q3_comparison/` and `q4_explainability/` with scripts that ingest the standardized outputs and produce tables/plots for the report.
+
+With the shared dataset loader and download script in place, every new piece of code can assume MUTAG resides in `./data` and that the splits/loaders stay consistent across experiments.
