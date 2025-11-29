@@ -4,13 +4,14 @@ import torch.nn.functional as F
 from torch_geometric.datasets import TUDataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, GINConv, global_mean_pool
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import itertools
 
 from torch_geometric.explain import Explainer, GNNExplainer, ModelConfig, Explanation
 from torch_geometric.explain.metric import fidelity
 import copy
 import statistics
+import pandas as pd
 
 
 # ============================================================
@@ -131,7 +132,12 @@ def evaluate(model, loader):
     y = torch.cat(ys).cpu()
     p = torch.cat(preds).cpu()
 
-    return accuracy_score(y, p), f1_score(y, p, average="macro")
+    acc = accuracy_score(y, p)
+    prec = precision_score(y, p, average='macro', zero_division=0)
+    rec = recall_score(y, p, average='macro', zero_division=0)
+    f1 = f1_score(y, p, average='macro', zero_division=0)
+
+    return acc, prec, rec, f1
 
 
 # ============================================================
@@ -152,16 +158,25 @@ def run_experiment(ModelClass, name):
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
         start_time = time.time()
-        best_val = 0
-        best_test = 0
+        best_val_acc = 0
+        best_val_prec = 0
+        best_val_rec = 0
+        best_val_f1 = 0
+        best_test_acc = 0
+        best_test_prec = 0
+        best_test_rec = 0
+        best_test_f1 = 0
 
         # training loop
         for epoch in range(50):  
             train_epoch(model, optimizer, train_loader)
-            val_acc, _ = evaluate(model, val_loader)
-            if val_acc > best_val:
-                best_val = val_acc
-                best_test = evaluate(model, test_loader)[0]
+            val_acc, val_prec, val_rec, val_f1 = evaluate(model, val_loader)
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_val_prec = val_prec
+                best_val_rec = val_rec
+                best_val_f1 = val_f1
+                best_test_acc, best_test_prec, best_test_rec, best_test_f1 = evaluate(model, test_loader)
 
         runtime = time.time() - start_time
 
@@ -171,13 +186,19 @@ def run_experiment(ModelClass, name):
             "Layers": L,
             "Dropout": d,
             "LR": lr,
-            "ValAcc": best_val,
-            "TestAcc": best_test,
+            "ValAcc": best_val_acc,
+            "ValPrec": best_val_prec,
+            "ValRec": best_val_rec,
+            "ValF1": best_val_f1,
+            "TestAcc": best_test_acc,
+            "TestPrec": best_test_prec,
+            "TestRec": best_test_rec,
+            "TestF1": best_test_f1,
             "RuntimeSec": runtime
         })
 
         print(f"{name} | h={h} L={L} d={d} lr={lr} → "
-              f"Val={best_val:.3f} Test={best_test:.3f} Time={runtime:.1f}s")
+              f"Val={best_val_acc:.3f} Test={best_test_acc:.3f} Time={runtime:.1f}s")
 
 
 # ============================================================
@@ -186,9 +207,11 @@ def run_experiment(ModelClass, name):
 
 print("\n================ GCN Experiments ================\n")
 run_experiment(GCN, "GCN")
+pd.DataFrame([r for r in results if r["Model"]=="GCN"]).to_csv("gcn_results.csv", index=False)
 
 print("\n================ GIN Experiments ================\n")
 run_experiment(GIN, "GIN")
+pd.DataFrame([r for r in results if r["Model"]=="GIN"]).to_csv("gin_results.csv", index=False)
 
 
 # ============================================================
@@ -212,7 +235,7 @@ def get_trained_model(ModelClass, h, L, d, lr):
     best_state = None
     for epoch in range(50):
         train_epoch(model, optimizer, train_loader)
-        val_acc, _ = evaluate(model, val_loader)
+        val_acc, _, _, _ = evaluate(model, val_loader)
         if val_acc > best_val:
             best_val = val_acc
             best_state = copy.deepcopy(model.state_dict())
@@ -273,6 +296,19 @@ def explain_model(model, model_name, num_explanations=5):
         sparsity_list.append(sparsity)
         runtime_list.append(runtime)
         explained_count += 1
+    
+    # Save all results to CSV
+    df = pd.DataFrame({
+        'GraphIndex': range(1, explained_count + 1),
+        'Fidelity+': fid_plus_list,
+        'Fidelity-': fid_minus_list,
+        'Sparsity': sparsity_list,
+        'Runtime': runtime_list
+    })
+    if model_name == "Best GCN":
+        df.to_csv("gcn_explain.csv", index=False)
+    elif model_name == "Best GIN":
+        df.to_csv("gin_explain.csv", index=False)
     
     print(f"\n{model_name} Explainability Metrics (Avg over {explained_count} graphs):")
     print(f"Fidelity+: {statistics.mean(fid_plus_list):.4f}")
