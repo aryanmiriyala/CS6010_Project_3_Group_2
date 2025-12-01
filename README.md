@@ -50,7 +50,8 @@ Deactivate the virtual environment with `deactivate` when finished.
 - `data_access/mutag.py` – shared loader returning seed-controlled dataset slices and PyG data loaders.
 - `q1_frequent_subgraphs_classic_ml/` – gSpan mining, feature construction, classical model training, and packaging utilities.
 - `q2_gnn/` – GCN + GIN models, training loops, and experiment runner.
-- `q3_comparison/`, `q4_explainability/` – placeholders for cross-pipeline analysis and explainability notebooks.
+- `q3_comparison/` – aggregation utilities + comparison plots/CSVs for Q3.
+- `q4_explainability/` – GNNExplainer workflow and outputs for Q4.
 - `data/` – cached MUTAG tensors (`raw/` + `processed/`).
 
 ---
@@ -171,7 +172,12 @@ Run the explainer script to train the best GCN/GIN configurations, generate GNNE
 python q4_explainability/run_gnn_explainer.py
 ```
 
-The script retrains the best configs from Q2 (GCN & GIN), identifies correctly classified test graphs, and uses PyG’s `GNNExplainer` to compute fidelity⁺, fidelity⁻, sparsity, and runtime for each explanation. Metrics are written to `q4_explainability/results/gnn_explainer_metrics.csv`.
+The script retrains the best configs from Q2 (GCN & GIN), identifies correctly classified test graphs, and uses PyG’s `GNNExplainer` to compute fidelity⁺, fidelity⁻, sparsity, and runtime for each explanation. Metrics are saved per model under:
+
+- `q4_explainability/results/GCN/gnn_explainer_metrics.csv`
+- `q4_explainability/results/GIN/gnn_explainer_metrics.csv`
+
+and also aggregated into `q4_explainability/results/gnn_explainer_metrics.csv` for quick comparison.
 
 This lets us compare post-hoc GNN explanations with the self-explainable nature of the classical pipeline: Q1 already surfaces discriminative motifs (frequent subgraphs) and classical models (e.g., Random Forest) provide feature importances per motif. In Q4 we contrast those intrinsic explanations with the masks produced by GNNExplainer (what edges/nodes the GNN relied on) and report fidelity/sparsity trade-offs.
 
