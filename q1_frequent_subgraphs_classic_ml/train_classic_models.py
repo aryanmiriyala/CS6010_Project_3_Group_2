@@ -179,15 +179,19 @@ def run_svm(feature_set: FeatureSet, feature_dim: int, configs: Sequence[Dict]) 
     return results
 
 def save_results(seed: int, support_ratio: float, runs: List[Dict]) -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = RESULTS_DIR / f"classic_ml_seed_{seed}_support_{support_ratio:.2f}.csv"
+    seed_dir = RESULTS_DIR / f"seed_{seed}"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    output_path = seed_dir / f"classic_ml_support_{support_ratio:.2f}.csv"
     
     df = pd.DataFrame(runs)
     # Flatten the 'params' dictionary into a string for easier CSV viewing
     df['params'] = df['params'].apply(json.dumps)
     
     df.to_csv(output_path, index=False)
-    print(f"Saved classic ML results for support {support_ratio:.2f} to {output_path.relative_to(REPO_ROOT)}")
+    print(
+        f"Saved classic ML results for support {support_ratio:.2f} to "
+        f"{output_path.relative_to(REPO_ROOT)}"
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train classic ML models on mined motif features.")

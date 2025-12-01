@@ -94,7 +94,7 @@ Key details:
 
 - `frequent_subgraph_mining.py` loops over the default seed list (currently `[0, 1, 2]`). For each seed, it mines motifs per class and per support ratio, writing JSONs under `artifacts/seed_<S>/class_<label>/support_XX/`.
 - `construct_features.py` reads those artifacts, keeps a configurable top-K motifs per class (scaled by support), computes subgraph-isomorphism counts (or binary indicators), and stores the resulting matrices in `features/seed_<S>/support_XX/`. Each `feature_config.json` logs the seed, motif counts, runtime, and mode.
-- `train_classic_models.py` loads each seed/support feature set, trains Random Forest and (linear/RBF) SVMs, and writes metrics to `results/classic_ml_seed_<S>_support_XX.csv`. Metrics include accuracy, macro precision/recall/F1, ROC-AUC, feature dimensionality, training time, and inference time.
+- `train_classic_models.py` loads each seed/support feature set, trains Random Forest and (linear/RBF) SVMs, and writes metrics to `results/seed_<S>/classic_ml_support_XX.csv`. Metrics include accuracy, macro precision/recall/F1, ROC-AUC, feature dimensionality, training time, and inference time.
 - `package_outputs.py` zips each seed/support’s artifacts and features (e.g., `archives/artifacts_seed_0_support_0.10.zip`) so representative files can be shared without keeping the heavy directories in git.
 
 Current snapshot (top-50 motifs per class, count features, single seed example):
@@ -140,24 +140,40 @@ The per-seed subdirectories mirror how Q1 stores features/results, making downst
 
 ---
 
-## Q3 – Comparison (planned)
+## Q3 – Comparison
 
-`q3_comparison/` will ingest the per-seed CSVs from Q1 and Q2, compute aggregated statistics, and generate plots/tables comparing:
+Run the aggregator to generate comparison tables/plots:
 
-- Accuracy/F1/AUC vs. support ratios vs. GNN hyperparameters.
-- Training/inference runtimes vs. feature dimensionality vs. parameter counts.
-- Variance across seeds.
+```bash
+python q3_comparison/compare_q1_q2.py
+```
 
-Scripts/notebooks will live here once the ablation data is fixed.
+The script:
+
+1. Reads every per-seed CSV from Q1 (`q1_frequent_subgraphs_classic_ml/results/`) and Q2 (`q2_gnn/results/seed_*/`).
+2. Merges them into `q3_comparison/aggregated_results.csv`, adding Q1 preprocessing time (mining + feature construction) so total pipeline time is comparable to the GNN training times.
+3. Produces summary CSVs:
+   - `summary_by_config.csv` – mean ± std across seeds for every model/support/hyperparameter combo.
+   - `best_configs.csv` – best validation-accuracy config per model (RandomForest, LinearSVM, RBFSVM, GCN, GIN) with corresponding test metrics/efficiency numbers.
+   - `summary_by_model.csv` – averages per individual model/config family.
+   - `summary_by_family.csv` – high-level averages per family (Classic vs GCN vs GIN).
+4. Saves per-metric bar charts grouped by model (classical supports are shown via separate line plots in `quality/classic_support_<metric>.png`) under `q3_comparison/figures/quality/` (e.g., `test_accuracy.png`, `test_f1.png`, `test_auc.png`) and per-metric efficiency plots under `q3_comparison/figures/efficiency/` (e.g., `train_time_sec.png`, `total_pipeline_time_sec.png`, `test_inference_time_sec.png`). Each plot aggregates every seed/support/config so classical vs. GNN models can be compared metric by metric without clutter.
+
+Use these artifacts in the report or for further analysis notebooks under `q3_comparison/`.
 
 ---
 
-## Q4 – Explainability (planned)
+## Q4 – Explainability
 
-`q4_explainability/` will host the notebooks/scripts for running GNN explainers (e.g., GNNExplainer, Integrated Gradients) on the best-performing GCN/GIN checkpoints. Planned artifacts include:
+Run the explainer script to train the best GCN/GIN configurations, generate GNNExplainer masks, and log fidelity/sparsity/runtime metrics:
 
-- Per-graph explanation CSVs/PNGs.
-- Fidelity/sparsity metrics that can be compared against the inherently interpretable motifs from Q1.
+```bash
+python q4_explainability/run_gnn_explainer.py
+```
+
+The script retrains the best configs from Q2 (GCN & GIN), identifies correctly classified test graphs, and uses PyG’s `GNNExplainer` to compute fidelity⁺, fidelity⁻, sparsity, and runtime for each explanation. Metrics are written to `q4_explainability/results/gnn_explainer_metrics.csv`.
+
+This lets us compare post-hoc GNN explanations with the self-explainable nature of the classical pipeline: Q1 already surfaces discriminative motifs (frequent subgraphs) and classical models (e.g., Random Forest) provide feature importances per motif. In Q4 we contrast those intrinsic explanations with the masks produced by GNNExplainer (what edges/nodes the GNN relied on) and report fidelity/sparsity trade-offs.
 
 ---
 
