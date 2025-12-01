@@ -16,15 +16,14 @@ ARCHIVES_DIR = Q1_ROOT / "archives"
 
 def discover_support_keys() -> list[str]:
     keys: set[str] = set()
-    for class_dir in ARTIFACTS_DIR.glob("class_*"):
-        if not class_dir.is_dir():
-            continue
-        for support_dir in class_dir.glob("support_*"):
-            parts = support_dir.name.split("_")
-            if len(parts) == 2:
-                keys.add(parts[1])
-    for support_dir in FEATURES_DIR.glob("support_*"):
-        if support_dir.is_dir():
+    for seed_dir in ARTIFACTS_DIR.glob("seed_*"):
+        for class_dir in seed_dir.glob("class_*"):
+            for support_dir in class_dir.glob("support_*"):
+                parts = support_dir.name.split("_")
+                if len(parts) == 2:
+                    keys.add(parts[1])
+    for seed_dir in FEATURES_DIR.glob("seed_*"):
+        for support_dir in seed_dir.glob("support_*"):
             parts = support_dir.name.split("_")
             if len(parts) == 2:
                 keys.add(parts[1])
@@ -39,35 +38,41 @@ def zip_tree(root: Path, zip_handle: zipfile.ZipFile, arc_prefix: Path) -> None:
         zip_handle.write(path, arcname=str(arc_prefix / relative))
 
 
-def package_artifacts_for_support(support_key: str) -> Path | None:
+def package_artifacts_for_support(seed: int, support_key: str) -> Path | None:
     ratio_dir = f"support_{support_key}"
+    seed_dir = ARTIFACTS_DIR / f"seed_{seed}"
+    if not seed_dir.exists():
+        return None
     class_dirs = []
-    for class_dir in sorted(ARTIFACTS_DIR.glob("class_*") ):
+    for class_dir in sorted(seed_dir.glob("class_*")):
         support_dir = class_dir / ratio_dir
         if support_dir.exists():
             class_dirs.append((class_dir.name, support_dir))
     if not class_dirs:
         return None
 
-    ARCHIVES_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = ARCHIVES_DIR / f"artifacts_{ratio_dir}.zip"
+    artifacts_root = ARCHIVES_DIR / "artifacts" / f"seed_{seed}"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    zip_path = artifacts_root / f"{ratio_dir}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for class_name, support_dir in class_dirs:
-            arc_prefix = Path("artifacts") / class_name / ratio_dir
+            arc_prefix = Path("artifacts") / f"seed_{seed}" / class_name / ratio_dir
             zip_tree(support_dir, zf, arc_prefix)
     return zip_path
 
 
-def package_features_for_support(support_key: str) -> Path | None:
+def package_features_for_support(seed: int, support_key: str) -> Path | None:
     ratio_dir = f"support_{support_key}"
-    support_dir = FEATURES_DIR / ratio_dir
+    seed_dir = FEATURES_DIR / f"seed_{seed}"
+    support_dir = seed_dir / ratio_dir
     if not support_dir.exists():
         return None
 
-    ARCHIVES_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = ARCHIVES_DIR / f"features_{ratio_dir}.zip"
+    features_root = ARCHIVES_DIR / "features" / f"seed_{seed}"
+    features_root.mkdir(parents=True, exist_ok=True)
+    zip_path = features_root / f"{ratio_dir}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        arc_prefix = Path("features") / ratio_dir
+        arc_prefix = Path("features") / f"seed_{seed}" / ratio_dir
         zip_tree(support_dir, zf, arc_prefix)
     return zip_path
 
@@ -106,20 +111,32 @@ def main() -> None:
     if not support_keys:
         raise SystemExit("No support ratios found to package. Run the mining/feature scripts first.")
 
-    for key in support_keys:
-        print(f"\n=== Packaging support ratio {key} ===")
-        if not args.skip_artifacts:
-            artifact_zip = package_artifacts_for_support(key)
-            if artifact_zip:
-                print(f"Artifacts → {artifact_zip.relative_to(REPO_ROOT)}")
-            else:
-                print("No artifacts found for this ratio; skipping artifact archive.")
-        if not args.skip_features:
-            feature_zip = package_features_for_support(key)
-            if feature_zip:
-                print(f"Features → {feature_zip.relative_to(REPO_ROOT)}")
-            else:
-                print("No features found for this ratio; skipping feature archive.")
+    seed_dirs = sorted(p for p in ARTIFACTS_DIR.glob("seed_*") if p.is_dir())
+    if not seed_dirs:
+        seed_dirs = sorted(p for p in FEATURES_DIR.glob("seed_*") if p.is_dir())
+    if not seed_dirs:
+        raise SystemExit("No seed directories found in artifacts or features.")
+
+    for seed_dir in seed_dirs:
+        try:
+            seed = int(seed_dir.name.split("_")[1])
+        except (IndexError, ValueError):
+            print(f"Skipping malformed seed directory {seed_dir}")
+            continue
+        for key in support_keys:
+            print(f"\n=== Packaging seed {seed} support ratio {key} ===")
+            if not args.skip_artifacts:
+                artifact_zip = package_artifacts_for_support(seed, key)
+                if artifact_zip:
+                    print(f"Artifacts → {artifact_zip.relative_to(REPO_ROOT)}")
+                else:
+                    print("No artifacts found for this seed/ratio; skipping artifact archive.")
+            if not args.skip_features:
+                feature_zip = package_features_for_support(seed, key)
+                if feature_zip:
+                    print(f"Features → {feature_zip.relative_to(REPO_ROOT)}")
+                else:
+                    print("No features found for this seed/ratio; skipping feature archive.")
 
 
 if __name__ == "__main__":

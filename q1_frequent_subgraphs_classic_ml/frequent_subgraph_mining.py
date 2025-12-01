@@ -16,6 +16,8 @@ if str(REPO_ROOT) not in sys.path:
 from data_access.mutag import load_mutag
 from q1_frequent_subgraphs_classic_ml.graph_utils import extract_edges, extract_node_labels
 
+SPLIT_SEEDS = [0, 1, 2]
+
 
 @dataclass
 class GraphRecord:
@@ -155,63 +157,70 @@ def main():
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading MUTAG dataset and preparing graph splits...")
-    dataset, splits, _ = load_mutag(batch_size=1, shuffle=False)
-    print(f"Loaded {len(splits.train)} training graphs across {dataset.num_classes} classes.")
-    graphs_by_label = build_graph_records(splits)
-    for label, graphs in graphs_by_label.items():
-        print(f"  Class {label}: {len(graphs)} training graphs")
-
-    summary = []
-    for support_ratio in args.support_thresholds:
-        print(f"\n=== Mining with support ratio {support_ratio:.2f} ===")
-        threshold_entry = {"support_ratio": support_ratio, "classes": {}}
+    all_runs = []
+    for seed in SPLIT_SEEDS:
+        print(f"\n=== Loading MUTAG dataset (seed={seed}) ===")
+        dataset, splits, _ = load_mutag(batch_size=1, shuffle=True, seed=seed)
+        print(f"Loaded {len(splits.train)} training graphs across {dataset.num_classes} classes.")
+        graphs_by_label = build_graph_records(splits)
         for label, graphs in graphs_by_label.items():
-            min_support = max(1, math.ceil(support_ratio * len(graphs)))
-            class_dir = args.output_dir / f"class_{label}" / f"support_{support_ratio:.2f}"
-            class_dir.mkdir(parents=True, exist_ok=True)
+            print(f"  Class {label}: {len(graphs)} training graphs")
 
-            db_path = class_dir / "graphs.gspan"
-            print(
-                f"Writing gSpan database for class {label} to "
-                f"{db_path.relative_to(REPO_ROOT)} (min_support={min_support})"
-            )
-            write_gspan_file(graphs, db_path)
-
-            print(f"Running gSpan for class {label} (support ratio {support_ratio:.2f})...")
-            patterns, runtime = mine_patterns(db_path, min_support)
-            output_json = class_dir / "patterns.json"
-            with open(output_json, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "class_label": label,
-                        "support_ratio": support_ratio,
-                        "min_support_count": min_support,
-                        "num_graphs": len(graphs),
-                        "patterns": patterns,
-                        "runtime_sec": runtime,
-                    },
-                    f,
-                    indent=2,
+        for support_ratio in args.support_thresholds:
+            print(f"\n--- Mining with support ratio {support_ratio:.2f} (seed={seed}) ---")
+            threshold_entry = {"seed": seed, "support_ratio": support_ratio, "classes": {}}
+            for label, graphs in graphs_by_label.items():
+                min_support = max(1, math.ceil(support_ratio * len(graphs)))
+                class_dir = (
+                    args.output_dir
+                    / f"seed_{seed}"
+                    / f"class_{label}"
+                    / f"support_{support_ratio:.2f}"
                 )
+                class_dir.mkdir(parents=True, exist_ok=True)
 
-            threshold_entry["classes"][label] = {
-                "num_graphs": len(graphs),
-                "min_support_count": min_support,
-                "num_patterns": len(patterns),
-                "runtime_sec": runtime,
-                "artifacts": str(class_dir.relative_to(args.output_dir)),
-            }
-            print(
-                f"Completed mining for class {label} | "
-                f"patterns: {len(patterns)} | runtime: {runtime:.2f}s | "
-                f"saved to {output_json.relative_to(REPO_ROOT)}"
-            )
-        summary.append(threshold_entry)
+                db_path = class_dir / "graphs.gspan"
+                print(
+                    f"Writing gSpan database for class {label} to "
+                    f"{db_path.relative_to(REPO_ROOT)} (min_support={min_support})"
+                )
+                write_gspan_file(graphs, db_path)
+
+                print(f"Running gSpan for class {label} (support ratio {support_ratio:.2f})...")
+                patterns, runtime = mine_patterns(db_path, min_support)
+                output_json = class_dir / "patterns.json"
+                with open(output_json, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "class_label": label,
+                            "support_ratio": support_ratio,
+                            "min_support_count": min_support,
+                            "seed": seed,
+                            "num_graphs": len(graphs),
+                            "patterns": patterns,
+                            "runtime_sec": runtime,
+                        },
+                        f,
+                        indent=2,
+                    )
+
+                threshold_entry["classes"][label] = {
+                    "num_graphs": len(graphs),
+                    "min_support_count": min_support,
+                    "num_patterns": len(patterns),
+                    "runtime_sec": runtime,
+                    "artifacts": str(class_dir.relative_to(args.output_dir)),
+                }
+                print(
+                    f"Completed mining for class {label} | "
+                    f"patterns: {len(patterns)} | runtime: {runtime:.2f}s | "
+                    f"saved to {output_json.relative_to(REPO_ROOT)}"
+                )
+            all_runs.append(threshold_entry)
 
     summary_path = args.output_dir / "mining_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(all_runs, f, indent=2)
     print(f"\nSaved mining summary to {summary_path.relative_to(REPO_ROOT)}")
 
 

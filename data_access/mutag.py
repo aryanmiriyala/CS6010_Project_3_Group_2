@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence, Tuple
 
+import torch
 from torch_geometric.datasets import TUDataset
 from torch_geometric.loader import DataLoader
+from torch.utils.data import Subset
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
@@ -51,6 +53,7 @@ def load_mutag(
     batch_size: int = 32,
     splits: Sequence[float] = (0.8, 0.1, 0.1),
     shuffle: bool = True,
+    seed: int | None = None,
 ) -> Tuple[TUDataset, DatasetSplits, DataLoaders]:
     """
     Download (if needed) and load the MUTAG dataset, returning both dataset slices
@@ -65,17 +68,27 @@ def load_mutag(
         raise ValueError("splits must sum to 1.0; received %.4f" % total_ratio)
 
     dataset = TUDataset(root=str(data_root), name="MUTAG")
-    if shuffle:
-        dataset = dataset.shuffle()
 
     total = len(dataset)
     train_len = int(splits[0] * total)
     val_len = int(splits[1] * total)
     test_len = total - train_len - val_len
 
-    train_dataset = dataset[:train_len]
-    val_dataset = dataset[train_len : train_len + val_len]
-    test_dataset = dataset[train_len + val_len :]
+    if shuffle:
+        generator = torch.Generator()
+        if seed is not None:
+            generator.manual_seed(seed)
+        permutation = torch.randperm(total, generator=generator).tolist()
+    else:
+        permutation = list(range(total))
+
+    train_indices = permutation[:train_len]
+    val_indices = permutation[train_len : train_len + val_len]
+    test_indices = permutation[train_len + val_len :]
+
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+    test_dataset = Subset(dataset, test_indices)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size)

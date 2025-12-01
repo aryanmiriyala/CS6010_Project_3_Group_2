@@ -18,6 +18,7 @@ from q1_frequent_subgraphs_classic_ml.graph_utils import pyg_data_to_nx
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 FEATURES_DIR = Path(__file__).resolve().parent / "features"
+FEATURES_SEEDS = [0, 1, 2]
 DEFAULT_BASE_TOP_K_PER_CLASS: int | None = 50
 SUPPORT_RATIO_TOP_K_MULTIPLIERS: Dict[str, float] = {
     "0.10": 8.0,
@@ -151,64 +152,89 @@ def main():
     features_dir = args.features_dir
     features_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset, splits, _ = load_mutag(batch_size=1, shuffle=False)
-    datasets = {
-        "train": [pyg_data_to_nx(data) for data in splits.train],
-        "val": [pyg_data_to_nx(data) for data in splits.val],
-        "test": [pyg_data_to_nx(data) for data in splits.test],
-    }
-    labels = {
-        "train": [int(data.y.item()) for data in splits.train],
-        "val": [int(data.y.item()) for data in splits.val],
-        "test": [int(data.y.item()) for data in splits.test],
-    }
+    support_seed_dirs = [
+        p for p in artifacts_dir.glob("seed_*") if p.is_dir()
+    ]
+    if not support_seed_dirs:
+        raise RuntimeError(f"No seed-specific artifact directories found in {artifacts_dir}")
 
-    support_ratios = discover_support_ratios(artifacts_dir)
-    if not support_ratios:
-        raise RuntimeError(f"No support directories found in {artifacts_dir}")
-
-    for support_ratio in support_ratios:
-        print(f"\n=== Constructing features for support ratio {support_ratio:.2f} ===")
-        top_k = resolve_top_k(
-            support_ratio,
-            args.base_top_k_per_class,
-            enable_scaling=not args.disable_ratio_scaling,
-        )
+    for seed_dir in sorted(support_seed_dirs):
         try:
-            patterns = load_patterns(artifacts_dir, support_ratio, top_k)
-        except FileNotFoundError as exc:
-            print(f"Skipping support ratio {support_ratio:.2f}: {exc}")
+            seed = int(seed_dir.name.split("_")[1])
+        except (IndexError, ValueError):
+            print(f"Skipping malformed seed directory: {seed_dir}")
             continue
-        if not patterns:
-            print(f"No patterns found for support ratio {support_ratio:.2f}, skipping.")
+        if seed not in FEATURES_SEEDS:
             continue
 
-        pattern_graphs = [pattern_to_nx(p) for p in patterns]
-        support_dir = features_dir / f"support_{support_ratio:.2f}"
-        support_dir.mkdir(parents=True, exist_ok=True)
-
-        start_time = time.time()
-        for split_name, graphs in datasets.items():
-            feats = compute_features(graphs, pattern_graphs, binary_features=args.binary_features)
-            np.savez(
-                support_dir / f"{split_name}_features.npz",
-                features=feats,
-                labels=np.array(labels[split_name], dtype=np.int64),
-            )
-        runtime_sec = time.time() - start_time
-
-        metadata = {
-            "support_ratio": support_ratio,
-            "base_top_k_per_class": args.base_top_k_per_class,
-            "scaled_top_k_per_class": top_k,
-            "num_patterns": len(patterns),
-            "feature_mode": "binary" if args.binary_features else "counts",
-            "feature_construction_runtime_sec": runtime_sec,
-            "pattern_metadata": patterns,
+        print(f"\n=== Constructing features for seed {seed} ===")
+        dataset, splits, _ = load_mutag(batch_size=1, shuffle=True, seed=seed)
+        datasets = {
+            "train": [pyg_data_to_nx(data) for data in splits.train],
+            "val": [pyg_data_to_nx(data) for data in splits.val],
+            "test": [pyg_data_to_nx(data) for data in splits.test],
         }
-        with open(support_dir / "feature_config.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
-        print(f"Saved features for support ratio {support_ratio:.2f} to {support_dir.relative_to(REPO_ROOT)}")
+        labels = {
+            "train": [int(data.y.item()) for data in splits.train],
+            "val": [int(data.y.item()) for data in splits.val],
+            "test": [int(data.y.item()) for data in splits.test],
+        }
+
+        support_ratios = discover_support_ratios(seed_dir)
+        if not support_ratios:
+            print(f"No support directories found for seed {seed}, skipping.")
+            continue
+
+        for support_ratio in support_ratios:
+            print(
+                f"--- Constructing features for support ratio {support_ratio:.2f} (seed={seed}) ---"
+            )
+            top_k = resolve_top_k(
+                support_ratio,
+                args.base_top_k_per_class,
+                enable_scaling=not args.disable_ratio_scaling,
+            )
+            try:
+                patterns = load_patterns(seed_dir, support_ratio, top_k)
+            except FileNotFoundError as exc:
+                print(f"Skipping support ratio {support_ratio:.2f}: {exc}")
+                continue
+            if not patterns:
+                print(f"No patterns found for support ratio {support_ratio:.2f}, skipping.")
+                continue
+
+            pattern_graphs = [pattern_to_nx(p) for p in patterns]
+            support_dir = features_dir / f"seed_{seed}" / f"support_{support_ratio:.2f}"
+            support_dir.mkdir(parents=True, exist_ok=True)
+
+            start_time = time.time()
+            for split_name, graphs in datasets.items():
+                feats = compute_features(
+                    graphs, pattern_graphs, binary_features=args.binary_features
+                )
+                np.savez(
+                    support_dir / f"{split_name}_features.npz",
+                    features=feats,
+                    labels=np.array(labels[split_name], dtype=np.int64),
+                )
+            runtime_sec = time.time() - start_time
+
+            metadata = {
+                "seed": seed,
+                "support_ratio": support_ratio,
+                "base_top_k_per_class": args.base_top_k_per_class,
+                "scaled_top_k_per_class": top_k,
+                "num_patterns": len(patterns),
+                "feature_mode": "binary" if args.binary_features else "counts",
+                "feature_construction_runtime_sec": runtime_sec,
+                "pattern_metadata": patterns,
+            }
+            with open(support_dir / "feature_config.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
+            print(
+                f"Saved features for seed {seed} support {support_ratio:.2f} to "
+                f"{support_dir.relative_to(REPO_ROOT)}"
+            )
 
 
 if __name__ == "__main__":

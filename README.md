@@ -2,14 +2,25 @@
 
 Group 2 · Emily Massie, Aryan, Josh, Jashu, Kyle · Due 11/20/2025
 
-This repo houses our four deliverables on the MUTAG dataset:
+---
 
-1. **Q1 – Frequent Subgraph Mining + Classic ML** (`q1_frequent_subgraphs_classic_ml/`)
-2. **Q2 – Graph Neural Networks** (`q2_gnn/`)
-3. **Q3 – Comparison of the two approaches** (`q3_comparison/`)
-4. **Q4 – Explainability for the GNN models** (`q4_explainability/`)
+## Introduction & Requirements
 
-Shared utilities and the MUTAG download script live at the repo root so each workstream can stay focused on its pipelines.
+This repository contains our four deliverables for CS6010 Project 3 on the MUTAG dataset. The course brief asks us to:
+
+1. Mine frequent subgraphs with gSpan, build classic ML pipelines with those motifs, and run ablations over supports/model parameters.
+2. Train at least two GNN architectures, ablate their hyperparameters, and study efficiency/quality trade-offs.
+3. Compare the classical and neural approaches.
+4. Run explainability analyses for the best GNN models.
+
+The MUTAG graphs (nitroaromatic compounds) live under `data/MUTAG/` in both raw `.txt` and processed `.pt` format; PyTorch Geometric downloads them automatically. Required packages (mirroring `pyrequirements.txt`) are:
+
+- `torch>=2.9.1`
+- `torch_geometric`
+- `scikit-learn>=1.7.2`
+- `ipykernel`
+- `gspan-mining`
+- `pandas`
 
 ---
 
@@ -17,74 +28,144 @@ Shared utilities and the MUTAG download script live at the repo root so each wor
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate          # Windows PowerShell: venv\Scripts\Activate.ps1
 pip install -r pyrequirements.txt
 ```
 
-### Download / Cache MUTAG
-
-We now keep dataset handling in one place. Run this once (or whenever you need to refresh the cache):
+To refresh the dataset cache at any time:
 
 ```bash
 python data_download/download_mutag.py
 ```
 
-This script calls `data_access/mutag.py`, which uses `torch_geometric.datasets.TUDataset` to pull the dataset into `./data/MUTAG/`.
+This invokes `data_access/mutag.py`, which wraps `torch_geometric.datasets.TUDataset` and guarantees deterministic train/val/test splits via a seed parameter.
+
+Deactivate the virtual environment with `deactivate` when finished.
 
 ---
 
 ## Repository Layout
 
-- `data_download/download_mutag.py` – convenience entrypoint to fetch MUTAG before running experiments.
-- `data_access/mutag.py` – shared loader returning consistent train/val/test splits and PyG data loaders for every pipeline.
-- `q1_frequent_subgraphs_classic_ml/` – hosts the standalone mining/classic ML pipeline (see `frequent_subgraph_mining.py`). Generated outputs (`artifacts/`, `features/`) stay gitignored because the mined pattern JSONs can exceed GitHub’s file-size limits; regenerate them locally and, when needed for sharing, compress them via `package_outputs.py` which writes `.zip` archives under `q1_frequent_subgraphs_classic_ml/archives/`.
-- `q2_gnn/` – contains `gnn.py`, now importing the shared loader to build/train GCN & GIN models, run the hyperparameter ablations, and kick off explainability passes for the best runs.
-- `q3_comparison/`, `q4_explainability/` – reserved for scripts/notebooks that will aggregate metrics and run post-hoc explainers once Q1 and Q2 output standardized logs.
-- `data/` – houses the MUTAG raw/processed tensors downloaded by PyG (kept for reproducibility).
+- `data_download/download_mutag.py` – one-off script to populate `./data/MUTAG/`.
+- `data_access/mutag.py` – shared loader returning seed-controlled dataset slices and PyG data loaders.
+- `q1_frequent_subgraphs_classic_ml/` – gSpan mining, feature construction, classical model training, and packaging utilities.
+- `q2_gnn/` – GCN + GIN models, training loops, and experiment runner.
+- `q3_comparison/`, `q4_explainability/` – placeholders for cross-pipeline analysis and explainability notebooks.
+- `data/` – cached MUTAG tensors (`raw/` + `processed/`).
 
 ---
 
-## Running the Existing Pipelines
+## Methodology Overview
 
-- **Classical (Q1):**
-  ```bash
-  python q1_frequent_subgraphs_classic_ml/frequent_subgraph_mining.py
-  python q1_frequent_subgraphs_classic_ml/construct_features.py --base-top-k-per-class 50
-  python q1_frequent_subgraphs_classic_ml/train_classic_models.py \
-      --rf-config optional/path/to/rf_grid.json \
-      --svm-config optional/path/to/svm_grid.json
-  python q1_frequent_subgraphs_classic_ml/package_outputs.py
-  ```
-  The first command mines frequent subgraphs per class (support thresholds configurable via `--support-thresholds`) and drops artifacts into `q1_frequent_subgraphs_classic_ml/artifacts/` (ignored in git). The second automatically scans those artifacts, scales the number of retained motifs per support ratio (`--base-top-k-per-class` controls the cap; pass `--disable-ratio-scaling` or `0` to keep all) and writes motif-count feature matrices for train/val/test under `q1_frequent_subgraphs_classic_ml/features/` (add `--binary-features` if you only want presence/absence). Each `feature_config.json` now logs how many motifs were kept plus the time it took to build that feature set. The third trains Random Forest & SVM baselines across every feature set and saves accuracy/precision/recall/F1 along with training + inference runtimes and feature dimensionality to `q1_frequent_subgraphs_classic_ml/results/`. Finally, `package_outputs.py` compresses each support ratio’s artifacts/features into `.zip` files in `q1_frequent_subgraphs_classic_ml/archives/` so we can check in representative outputs without relying on Git LFS. Each archive mirrors the per-support folder layout: `archives/artifacts_support_0.10.zip` stores the `class_*/support_0.10` `patterns.json` files and `graphs.gspan` databases, while `archives/features_support_0.10.zip` bundles the corresponding `train/val/test` `.npz` matrices and `feature_config.json`. This keeps the repo light yet lets teammates inspect mined motifs, feature dimensionality, and runtime metadata without regenerating everything.
+1. Download MUTAG via `TUDataset` once.
+2. Decide on classical motifs vs GNN architectures and corresponding grids.
+3. For each seed, run Q1 scripts in order (mine → build features → train classic models); each step only depends on the prior outputs.
+4. For each seed, run Q2 experiments which load the same split and sweep hyperparameters per architecture.
+5. Aggregate per-seed CSVs for ablation studies (to be automated in Q3).
+6. Run explainability tooling (forthcoming) on the best GNN checkpoints.
 
-  **Current Q1 metrics (top-50 motifs per class, count features):**
+---
 
-  | Support | Best Model | Val Acc | Test Acc | Val F1 | Test F1 | Train Time (s) |
-  |---------|------------|---------|----------|--------|---------|----------------|
-  | 0.10    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.16 |
-  | 0.20    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.14 |
-  | 0.30    | Linear SVM (C=0.1) | 0.94 | 0.80 | 0.935 | 0.780 | 0.14 |
-  | 0.40    | Random Forest (100 trees) | 0.89 | 0.75 | 0.862 | 0.715 | 0.10 |
+## Dataset
 
-  Raw metrics (including precision/recall, inference time, and exact hyperparameters) live in `q1_frequent_subgraphs_classic_ml/results/classic_ml_support_XX.json` for each support ratio.
-- **GNNs (Q2):**
-  ```bash
-  python q2_gnn/gnn.py
-  ```
-  The script now:
-  - pulls MUTAG splits via `data_access.mutag.load_mutag(...)`
-  - trains GCN & GIN over the configured hyperparameter grid
-  - prints per-config validation/test accuracy and runtime
-  - retrains the best configs and runs GNNExplainer on a few correctly classified graphs
+Located in `./data/MUTAG/`:
 
-As other questions are implemented, keep their code (trainers, evaluation scripts, explainability notebooks) inside the respective `Q*_.../` directories so each deliverable stays isolated yet consistent via the shared data utilities.
+- `raw/` – the original `.txt` files (graph indicator, edges, labels). We keep them for reproducibility and possible custom preprocessing.
+- `processed/` – PyG tensors generated automatically; the scripts read from here via `torch_geometric`.
+
+`data_access/mutag.load_mutag(...)` always shuffles with a provided seed before slicing the dataset into 80/10/10 train/val/test subsets, so every pipeline can line up their splits.
+
+---
+
+## Q1 – Frequent Subgraph Mining + Classical ML
+
+Run the following (per-seed artifacts/features stay gitignored; package zipped outputs when needed):
+
+```bash
+python q1_frequent_subgraphs_classic_ml/frequent_subgraph_mining.py
+python q1_frequent_subgraphs_classic_ml/construct_features.py --base-top-k-per-class 50
+python q1_frequent_subgraphs_classic_ml/train_classic_models.py \
+    --rf-config optional/path/to/rf_grid.json \
+    --svm-config optional/path/to/svm_grid.json
+python q1_frequent_subgraphs_classic_ml/package_outputs.py
+```
+
+Key details:
+
+- `frequent_subgraph_mining.py` loops over the default seed list (currently `[0, 1, 2]`). For each seed, it mines motifs per class and per support ratio, writing JSONs under `artifacts/seed_<S>/class_<label>/support_XX/`.
+- `construct_features.py` reads those artifacts, keeps a configurable top-K motifs per class (scaled by support), computes subgraph-isomorphism counts (or binary indicators), and stores the resulting matrices in `features/seed_<S>/support_XX/`. Each `feature_config.json` logs the seed, motif counts, runtime, and mode.
+- `train_classic_models.py` loads each seed/support feature set, trains Random Forest and (linear/RBF) SVMs, and writes metrics to `results/classic_ml_seed_<S>_support_XX.csv`. Metrics include accuracy, macro precision/recall/F1, ROC-AUC, feature dimensionality, training time, and inference time.
+- `package_outputs.py` zips each seed/support’s artifacts and features (e.g., `archives/artifacts_seed_0_support_0.10.zip`) so representative files can be shared without keeping the heavy directories in git.
+
+Current snapshot (top-50 motifs per class, count features, single seed example):
+
+| Support | Best Model | Val Acc | Test Acc | Val F1 | Test F1 | Train Time (s) |
+|---------|------------|---------|----------|--------|---------|----------------|
+| 0.10    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.16 |
+| 0.20    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.14 |
+| 0.30    | Linear SVM (C=0.1) | 0.94 | 0.80 | 0.935 | 0.780 | 0.14 |
+| 0.40    | Random Forest (100 trees) | 0.89 | 0.75 | 0.862 | 0.715 | 0.10 |
+
+Per-seed CSVs under `q1_frequent_subgraphs_classic_ml/results/` provide the full grids.
+
+---
+
+## Q2 – Graph Neural Networks (GCN & GIN)
+
+Entry point:
+
+```bash
+python q2_gnn/run_experiments.py
+```
+
+Configuration constants inside the script define:
+
+- `EXPERIMENT_SEEDS = [0, 1, 2]` (matching Q1 splits).
+- Hyperparameter grid (`HIDDEN_DIMS`, `NUM_LAYERS`, `DROPOUTS`, `LRS`).
+- `RUN_GCN`, `RUN_GIN`, epoch budget, and batch size.
+
+For each seed and hyperparameter combo:
+
+1. The model (GCN or GIN from `q2_gnn/models.py`) is instantiated with the chosen depth/width/dropout.
+2. Trained for `NUM_EPOCHS` epochs via `train_epoch` (shared in `training.py`).
+3. Evaluated once on validation/test loaders. `evaluate` returns accuracy, macro precision/recall/F1, ROC-AUC, plus inference time.
+4. A result row is recorded with the seed, parameters, train/runtime stats, and metrics.
+
+Outputs (per seed):
+
+- `q2_gnn/results/seed_<S>/gcn_results.csv`
+- `q2_gnn/results/seed_<S>/gin_results.csv`
+
+The per-seed subdirectories mirror how Q1 stores features/results, making downstream aggregation straightforward. Explainability metrics (e.g., GNNExplainer) will join `q2_gnn/results/seed_<S>/` once the best configs are finalized.
+
+---
+
+## Q3 – Comparison (planned)
+
+`q3_comparison/` will ingest the per-seed CSVs from Q1 and Q2, compute aggregated statistics, and generate plots/tables comparing:
+
+- Accuracy/F1/AUC vs. support ratios vs. GNN hyperparameters.
+- Training/inference runtimes vs. feature dimensionality vs. parameter counts.
+- Variance across seeds.
+
+Scripts/notebooks will live here once the ablation data is fixed.
+
+---
+
+## Q4 – Explainability (planned)
+
+`q4_explainability/` will host the notebooks/scripts for running GNN explainers (e.g., GNNExplainer, Integrated Gradients) on the best-performing GCN/GIN checkpoints. Planned artifacts include:
+
+- Per-graph explanation CSVs/PNGs.
+- Fidelity/sparsity metrics that can be compared against the inherently interpretable motifs from Q1.
 
 ---
 
 ## Next Steps
 
-- Extend `q1_frequent_subgraphs_classic_ml` beyond the initial gSpan run: persist mined motifs, build feature matrices, and add classical models plus ablation sweeps (scripts now exist; rerun them locally as outputs remain gitignored).
-- Teach `q2_gnn/gnn.py` to export metrics/checkpoints to feed into Q3 comparisons.
-- Populate `q3_comparison/` and `q4_explainability/` with scripts that ingest the standardized outputs and produce tables/plots for the report.
+1. Re-run Q1 and Q2 pipelines to populate the new per-seed directories and CSVs.
+2. Add Q3 aggregation scripts to summarize the classical vs. GNN ablations.
+3. Integrate GNN explainability workflows into Q4.
+4. Consider exporting trained checkpoints or additional metadata if Q3/Q4 need them.
 
-With the shared dataset loader and download script in place, every new piece of code can assume MUTAG resides in `./data` and that the splits/loaders stay consistent across experiments.
+With the shared seed-aware loader in place, each question can evolve independently while guaranteeing consistent, reproducible splits across experiments.
