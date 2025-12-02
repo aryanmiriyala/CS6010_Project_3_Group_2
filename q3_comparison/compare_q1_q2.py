@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 Q1_ROOT = REPO_ROOT / "q1_frequent_subgraphs_classic_ml"
@@ -27,7 +28,7 @@ EFFICIENCY_DIR.mkdir(parents=True, exist_ok=True)
 sns.set_theme(style="whitegrid")
 
 QUALITY_METRICS = ("test_accuracy", "test_precision", "test_recall", "test_f1", "test_auc")
-EFFICIENCY_METRICS = ("preprocess_time_sec", "train_time_sec", "total_pipeline_time_sec", "test_inference_time_sec")
+EFFICIENCY_COMPONENTS = ("preprocess_time_sec", "train_time_sec", "test_inference_time_sec")
 
 
 def _parse_seed(name: str) -> int | None:
@@ -192,49 +193,121 @@ def summarize(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFram
     return summary, best_rows, model_summary, family_summary
 
 
+def _prepare_group_positions(num_groups: int, num_series: int, bar_width: float = 0.2):
+    x = np.arange(num_groups)
+    offsets = (np.arange(num_series) - (num_series - 1) / 2) * bar_width
+    return x, offsets, bar_width
+
+
 def plot_classical_support_metric(df: pd.DataFrame, metric: str) -> None:
     classic_df = df[df["family"] == "Classic"].dropna(subset=["support_ratio", metric])
     if classic_df.empty:
         return
-    agg = (
-        classic_df.groupby(["support_ratio", "approach"])[metric]
-        .agg(["mean", "std"])
-        .reset_index()
-    )
-    fig, ax = plt.subplots(figsize=(8, 4))
-    for model, group in agg.groupby("approach"):
-        ax.errorbar(
-            group["support_ratio"],
-            group["mean"],
-            yerr=group["std"],
-            marker="o",
-            capsize=4,
-            label=model,
+    supports = sorted(classic_df["support_ratio"].unique())
+    approaches = sorted(classic_df["approach"].unique())
+    fig_width = max(8, len(supports) * len(approaches) * 0.4)
+    fig, ax = plt.subplots(figsize=(fig_width, 4))
+    bar_width = 0.8 / len(approaches)
+    x = np.arange(len(supports))
+
+    for idx, approach in enumerate(approaches):
+        subset = (
+            classic_df[classic_df["approach"] == approach]
+            .groupby("support_ratio")[metric]
+            .mean()
         )
+        heights = [subset.get(support, np.nan) for support in supports]
+        ax.bar(
+            x + idx * bar_width,
+            heights,
+            width=bar_width,
+            label=approach,
+        )
+
+    ax.set_xticks(x + (len(approaches) - 1) * bar_width / 2)
+    ax.set_xticklabels([f"{s:.2f}" for s in supports])
     ax.set_xlabel("Support Ratio")
     ax.set_ylabel(metric.replace("_", " ").title())
     ax.set_ylim(0, 1.05)
-    ax.set_title(f"Classical {metric.replace('_', ' ').title()} vs Support")
+    ax.set_title(f"Classical {metric.replace('_', ' ').title()} (bar view)")
     ax.legend()
     fig.tight_layout()
     fig.savefig(QUALITY_DIR / f"classic_support_{metric}.png", dpi=200)
     plt.close(fig)
 
 
-def plot_metric_box(df: pd.DataFrame, metric: str, out_dir: Path, log_scale: bool = False) -> None:
-    metric_df = df.dropna(subset=[metric])
+def select_best_configs(df: pd.DataFrame) -> pd.DataFrame:
+    subset = df.dropna(subset=["val_accuracy"]).copy()
+    if subset.empty:
+        return subset
+    idx = subset.groupby(["approach", "seed"])["val_accuracy"].idxmax()
+    best_df = subset.loc[idx].copy()
+    return best_df
+
+
+def plot_quality_summary(best_df: pd.DataFrame, metric: str) -> None:
+    metric_df = best_df.dropna(subset=[metric])
     if metric_df.empty:
         return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.boxplot(data=metric_df, x="approach", y=metric, palette="Set3", ax=ax)
-    sns.stripplot(data=metric_df, x="approach", y=metric, color="black", size=2, alpha=0.4, ax=ax)
-    if log_scale:
-        ax.set_yscale("log")
+    approaches = sorted(metric_df["approach"].unique())
+    seeds = sorted(metric_df["seed"].unique())
+    bar_width = 0.15
+    x, offsets, bar_width = _prepare_group_positions(len(approaches), len(seeds), bar_width)
+    fig_width = max(8, len(approaches) * 0.8)
+    fig, ax = plt.subplots(figsize=(fig_width, 4))
+
+    for idx, seed in enumerate(seeds):
+        subset = metric_df[metric_df["seed"] == seed].set_index("approach")
+        heights = [subset.loc[app, metric] if app in subset.index else np.nan for app in approaches]
+        ax.bar(
+            x + offsets[idx],
+            heights,
+            width=bar_width,
+            label=f"Seed {seed}",
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(approaches, rotation=20)
+    ax.set_ylim(0, 1.05)
     ax.set_ylabel(metric.replace("_", " ").title())
-    ax.set_title(f"{metric.replace('_', ' ').title()} distribution by model")
+    ax.set_title(f"{metric.replace('_', ' ').title()} (best config per seed)")
+    ax.legend()
     fig.tight_layout()
-    fig.savefig(out_dir / f"box_{metric}.png", dpi=200)
+    fig.savefig(QUALITY_DIR / f"best_{metric}.png", dpi=200)
     plt.close(fig)
+
+
+def plot_efficiency_components(best_df: pd.DataFrame) -> None:
+    if best_df.empty:
+        return
+    approaches = sorted(best_df["approach"].unique())
+    seeds = sorted(best_df["seed"].unique())
+    metrics = ["preprocess_time_sec", "train_time_sec", "test_inference_time_sec", "total_pipeline_time_sec"]
+    for metric in metrics:
+        metric_df = best_df.dropna(subset=[metric])
+        if metric_df.empty:
+            continue
+        x, offsets, bar_width = _prepare_group_positions(len(approaches), len(seeds))
+        fig_width = max(8, len(approaches) * 0.9)
+        fig, ax = plt.subplots(figsize=(fig_width, 4.5))
+        for idx, seed in enumerate(seeds):
+            subset = metric_df[metric_df["seed"] == seed].set_index("approach")
+            heights = [subset.loc[app, metric] if app in subset.index else np.nan for app in approaches]
+            ax.bar(
+                x + offsets[idx],
+                heights,
+                width=bar_width,
+                label=f"Seed {seed}",
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(approaches, rotation=20)
+        ax.set_ylabel(metric.replace("_", " ").title() + " (s)")
+        ax.set_title(f"{metric.replace('_', ' ').title()} per Approach (best configs)")
+        ax.legend()
+        fig.tight_layout()
+        filename = metric.replace("_sec", "").replace("_", "") + "_bar.png"
+        fig.savefig(EFFICIENCY_DIR / filename, dpi=200)
+        plt.close(fig)
 
 
 def main() -> None:
@@ -246,11 +319,14 @@ def main() -> None:
     model_summary.to_csv(RESULTS_DIR / "summary_by_model.csv", index=False)
     family_summary.to_csv(RESULTS_DIR / "summary_by_family.csv", index=False)
 
+    best_df = select_best_configs(df)
+
     for metric in QUALITY_METRICS:
         plot_classical_support_metric(df, metric)
-        plot_metric_box(df, metric, QUALITY_DIR, log_scale=False)
-    for metric in EFFICIENCY_METRICS:
-        plot_metric_box(df, metric, EFFICIENCY_DIR, log_scale=True)
+        plot_quality_summary(best_df, metric)
+
+    plot_efficiency_components(best_df)
+    # Total time bars already included in efficiency components loop
 
     print("Saved aggregated comparison outputs to", RESULTS_DIR)
 
