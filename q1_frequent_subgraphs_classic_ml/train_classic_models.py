@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.svm import LinearSVC, SVC
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -26,10 +27,12 @@ class FeatureSet:
     metadata: Dict
 
 
-def load_feature_set(support_ratio: float) -> FeatureSet:
-    support_dir = FEATURES_DIR / f"support_{support_ratio:.2f}"
+def load_feature_set(support_ratio: float, seed: int) -> FeatureSet:
+    support_dir = FEATURES_DIR / f"seed_{seed}" / f"support_{support_ratio:.2f}"
     if not support_dir.exists():
-        raise FileNotFoundError(f"Features for support {support_ratio:.2f} not found at {support_dir}")
+        raise FileNotFoundError(
+            f"Features for seed {seed} support {support_ratio:.2f} not found at {support_dir}"
+        )
 
     def load_split(name: str) -> Tuple[np.ndarray, np.ndarray]:
         data = np.load(support_dir / f"{name}_features.npz")
@@ -48,23 +51,33 @@ def load_feature_set(support_ratio: float) -> FeatureSet:
 def evaluate_model(model, X_val, y_val, X_test, y_test) -> Dict[str, float]:
     start = time.time()
     val_pred = model.predict(X_val)
-    val_inference = time.time() - start
+    val_inference_time = time.time() - start
 
     start = time.time()
     test_pred = model.predict(X_test)
-    test_inference = time.time() - start
+    test_inference_time = time.time() - start
+
+    # Get scores for AUC calculation
+    if hasattr(model, "predict_proba"):
+        val_scores = model.predict_proba(X_val)[:, 1]
+        test_scores = model.predict_proba(X_test)[:, 1]
+    else:  # For models like LinearSVC that have decision_function
+        val_scores = model.decision_function(X_val)
+        test_scores = model.decision_function(X_test)
 
     metrics = {
         "val_accuracy": accuracy_score(y_val, val_pred),
         "val_precision": precision_score(y_val, val_pred, average="macro", zero_division=0),
         "val_recall": recall_score(y_val, val_pred, average="macro", zero_division=0),
         "val_f1": f1_score(y_val, val_pred, average="macro", zero_division=0),
-        "val_inference_time_sec": val_inference,
+        "val_auc": roc_auc_score(y_val, val_scores),
+        "val_inference_time_sec": val_inference_time,
         "test_accuracy": accuracy_score(y_test, test_pred),
         "test_precision": precision_score(y_test, test_pred, average="macro", zero_division=0),
         "test_recall": recall_score(y_test, test_pred, average="macro", zero_division=0),
         "test_f1": f1_score(y_test, test_pred, average="macro", zero_division=0),
-        "test_inference_time_sec": test_inference,
+        "test_auc": roc_auc_score(y_test, test_scores),
+        "test_inference_time_sec": test_inference_time,
     }
     return metrics
 
@@ -120,25 +133,32 @@ def run_random_forest(feature_set: FeatureSet, feature_dim: int, configs: Sequen
         run = {
             "model": "RandomForest",
             "params": cfg,
+            "num_params": None,  # Placeholder for consistency
             "train_time_sec": train_time,
             "feature_dim": feature_dim,
+            "seed": feature_set.metadata.get("seed"),
         }
         run.update(metrics)
         results.append(run)
     return results
 
-
 def run_svm(feature_set: FeatureSet, feature_dim: int, configs: Sequence[Dict]) -> List[Dict]:
     results = []
     for cfg in configs:
+        num_params = None
         if cfg["type"] == "linear":
-            model = LinearSVC(C=cfg["C"], max_iter=5000)
+            model = LinearSVC(C=cfg["C"], max_iter=5000, dual=True) # dual=True is required by some systems
         else:
-            model = SVC(C=cfg["C"], kernel="rbf", gamma=cfg["gamma"])
+            # probability=True is required for roc_auc_score
+            model = SVC(C=cfg["C"], kernel="rbf", gamma=cfg["gamma"], probability=True)
 
         start = time.time()
         model.fit(feature_set.train_X, feature_set.train_y)
         train_time = time.time() - start
+        
+        if isinstance(model, LinearSVC):
+            num_params = model.coef_.size
+
         metrics = evaluate_model(
             model,
             feature_set.val_X,
@@ -149,21 +169,29 @@ def run_svm(feature_set: FeatureSet, feature_dim: int, configs: Sequence[Dict]) 
         run = {
             "model": "LinearSVM" if cfg["type"] == "linear" else "RBFSVM",
             "params": cfg,
+            "num_params": num_params,
             "train_time_sec": train_time,
             "feature_dim": feature_dim,
+            "seed": feature_set.metadata.get("seed"),
         }
         run.update(metrics)
         results.append(run)
     return results
 
-
-def save_results(support_ratio: float, runs: List[Dict]) -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = RESULTS_DIR / f"classic_ml_support_{support_ratio:.2f}.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(runs, f, indent=2)
-    print(f"Saved classic ML results for support {support_ratio:.2f} to {output_path.relative_to(REPO_ROOT)}")
-
+def save_results(seed: int, support_ratio: float, runs: List[Dict]) -> None:
+    seed_dir = RESULTS_DIR / f"seed_{seed}"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    output_path = seed_dir / f"classic_ml_support_{support_ratio:.2f}.csv"
+    
+    df = pd.DataFrame(runs)
+    # Flatten the 'params' dictionary into a string for easier CSV viewing
+    df['params'] = df['params'].apply(json.dumps)
+    
+    df.to_csv(output_path, index=False)
+    print(
+        f"Saved classic ML results for support {support_ratio:.2f} to "
+        f"{output_path.relative_to(REPO_ROOT)}"
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train classic ML models on mined motif features.")
@@ -179,33 +207,45 @@ def parse_args():
     )
     return parser.parse_args()
 
-
 def main():
     args = parse_args()
     rf_configs = load_config_overrides(args.rf_config, DEFAULT_RF_CONFIGS)
     svm_configs = load_config_overrides(args.svm_config, DEFAULT_SVM_CONFIGS)
-    support_ratios = sorted(
-        float(p.name.split("_")[1]) for p in FEATURES_DIR.glob("support_*") if p.is_dir()
-    )
-    if not support_ratios:
-        raise RuntimeError(f"No feature directories found in {FEATURES_DIR}")
+    seed_dirs = sorted(p for p in FEATURES_DIR.glob("seed_*") if p.is_dir())
+    if not seed_dirs:
+        raise RuntimeError(f"No seed-specific feature directories found in {FEATURES_DIR}")
 
-    for support_ratio in support_ratios:
-        print(f"\n=== Training classic models for support ratio {support_ratio:.2f} ===")
-        feature_set = load_feature_set(support_ratio)
-        feature_dim = feature_set.metadata.get("num_patterns", feature_set.train_X.shape[1])
-        runs = []
-        runs.extend(run_random_forest(feature_set, feature_dim, rf_configs))
-        runs.extend(run_svm(feature_set, feature_dim, svm_configs))
-        for run in runs:
+    for seed_dir in seed_dirs:
+        try:
+            seed = int(seed_dir.name.split("_")[1])
+        except (IndexError, ValueError):
+            print(f"Skipping malformed seed directory {seed_dir}")
+            continue
+
+        support_ratios = sorted(
+            float(p.name.split("_")[1]) for p in seed_dir.glob("support_*") if p.is_dir()
+        )
+        if not support_ratios:
+            print(f"No support directories found for seed {seed}, skipping.")
+            continue
+
+        for support_ratio in support_ratios:
             print(
-                f"{run['model']} {run['params']} | "
-                f"Val Acc {run['val_accuracy']:.3f} F1 {run['val_f1']:.3f} | "
-                f"Test Acc {run['test_accuracy']:.3f} F1 {run['test_f1']:.3f} | "
-                f"Train {run['train_time_sec']:.2f}s "
-                f"ValInfer {run['val_inference_time_sec']:.3f}s TestInfer {run['test_inference_time_sec']:.3f}s"
+                f"\n=== Training classic models for seed {seed} support ratio {support_ratio:.2f} ==="
             )
-        save_results(support_ratio, runs)
+            feature_set = load_feature_set(support_ratio, seed)
+            feature_dim = feature_set.metadata.get("num_patterns", feature_set.train_X.shape[1])
+            runs = []
+            runs.extend(run_random_forest(feature_set, feature_dim, rf_configs))
+            runs.extend(run_svm(feature_set, feature_dim, svm_configs))
+            for run in runs:
+                print(
+                    f"Seed {seed} {run['model']} {run['params']} | "
+                    f"Val Acc {run['val_accuracy']:.3f} AUC {run['val_auc']:.3f} | "
+                    f"Test Acc {run['test_accuracy']:.3f} AUC {run['test_auc']:.3f} | "
+                    f"Train {run['train_time_sec']:.2f}s"
+                )
+            save_results(seed, support_ratio, runs)
 
 
 if __name__ == "__main__":
