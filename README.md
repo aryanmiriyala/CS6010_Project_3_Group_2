@@ -191,3 +191,8 @@ This lets us compare post-hoc GNN explanations with the self-explainable nature 
 4. Consider exporting trained checkpoints or additional metadata if Q3/Q4 need them.
 
 With the shared seed-aware loader in place, each question can evolve independently while guaranteeing consistent, reproducible splits across experiments.
+
+
+# Results and Conclusions
+
+The programs for both the dataset runs and build out ML models. The outputs for each program were used for our results, which can all be seen in our report.
