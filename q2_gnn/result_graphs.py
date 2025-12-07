@@ -34,7 +34,7 @@ for seed in num_seeds:
 
 
 results_df = pd.concat(results_all)
-
+results_df['params'] = results_df['hidden_dim'].astype('str') + ',' + results_df['layers'].astype('str') + ',' + results_df['dropout'].astype('str') + ',' + results_df['lr'].astype('str')
 ## Create a Visual Representation of Ablations studies for that model
 def build_graphs(results_df, metric_name, columns = [] , metrics = []):
 
@@ -58,3 +58,16 @@ def build_graphs(results_df, metric_name, columns = [] , metrics = []):
 
 build_graphs(results_df, 'Validation', columns=supports, metrics=val_metrics)
 build_graphs(results_df, 'Test', columns=supports, metrics=test_metrics)
+
+
+## Get Summary Results
+metrics = ['test_f1']
+format_results = results_df.groupby(by = ['model', 'params'])
+format_results = format_results[metrics].agg('mean')
+format_results.to_csv(graph_path + sep + 'test_results_params.csv')
+
+## Get Summary Results
+metrics = ['test_f1']
+format_results = results_df.groupby(by = ['model', 'params', 'seed'])
+format_results = format_results[metrics].agg('mean')
+format_results.to_csv(graph_path + sep + 'test_results_seed.csv')
