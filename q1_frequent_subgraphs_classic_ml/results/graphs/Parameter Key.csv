@@ -1,0 +1,9 @@
+model, parameters
+RandomForest 1,{"n_estimators": 100, "max_depth": null}
+RandomForest 2,{"n_estimators": 200, "max_depth": null}
+RandomForest 3,{"n_estimators": 100, "max_depth": 10}
+RandomForest 4,{"n_estimators": 200, "max_depth": 20}
+LinearSVM 1,{"type": "linear", "C": 0.1}
+LinearSVM 2,{"type": "linear", "C": 1.0}
+RBFSVM 1,{"type": "rbf", "C": 1.0, "gamma": "scale"}
+RBFSVM 2,{"type": "rbf", "C": 5.0, "gamma": "scale"}

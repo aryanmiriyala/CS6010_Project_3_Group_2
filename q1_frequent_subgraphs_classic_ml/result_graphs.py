@@ -48,13 +48,17 @@ def rename_param(df, param_dict):
         for par in params:
             key = f'{model} {param_num + 1}'
             param_num += 1
-            new_param[key] = par
+            new_param[key] = str(par)
             df['params'][df['params'] == par] = key
 
     return df, new_param
 
 results_df, params_dict = rename_param(results_df, param_dict=param_dict)
 
+with open(graph_path + sep + 'Parameter Key.csv', 'w') as file:
+        file.write("model, parameters\n")
+        for key, value in params_dict.items():
+            file.write(key +  ',' + str(value) + '\n')
 
 ## Create a Visual Representation of Ablations studies for that model
 def build_graphs(results_df, metric_name, supports = [], metrics = []):
