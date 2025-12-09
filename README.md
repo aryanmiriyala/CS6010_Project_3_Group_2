@@ -97,6 +97,7 @@ Key details:
 - `construct_features.py` reads those artifacts, keeps a configurable top-K motifs per class (scaled by support), computes subgraph-isomorphism counts (or binary indicators), and stores the resulting matrices in `features/seed_<S>/support_XX/`. Each `feature_config.json` logs the seed, motif counts, runtime, and mode.
 - `train_classic_models.py` loads each seed/support feature set, trains Random Forest and (linear/RBF) SVMs, and writes metrics to `results/seed_<S>/classic_ml_support_XX.csv`. Metrics include accuracy, macro precision/recall/F1, ROC-AUC, feature dimensionality, training time, and inference time.
 - `package_outputs.py` zips each seed/support’s artifacts and features (e.g., `archives/artifacts_seed_0_support_0.10.zip`) so representative files can be shared without keeping the heavy directories in git.
+- The `archives/` directory therefore contains shareable `.zip` bundles for each seed/support pair, combining both the mined motifs (`artifacts/`) and the derived feature tensors (`features/`). Use those archives when you need to inspect a particular configuration without re-running the mining pipeline.
 
 Current snapshot (top-50 motifs per class, count features, single seed example):
 
@@ -139,6 +140,8 @@ Outputs (per seed):
 
 The per-seed subdirectories mirror how Q1 stores features/results, making downstream aggregation straightforward. Explainability metrics (e.g., GNNExplainer) will join `q2_gnn/results/seed_<S>/` once the best configs are finalized.
 
+When running experiments, use the CSVs and figures in `q2_gnn/results/graphs/` to inspect ablations (hidden dim, layers, dropout, learning rate). Each graph shows how the quality/efficiency metrics respond to individual hyperparameters, averaged over seeds.
+
 ---
 
 ## Q3 – Comparison
@@ -161,6 +164,8 @@ The script:
 4. Saves per-metric bar charts grouped by model (classical supports are shown via separate line plots in `quality/classic_support_<metric>.png`) under `q3_comparison/figures/quality/` (e.g., `test_accuracy.png`, `test_f1.png`, `test_auc.png`) and per-metric efficiency plots under `q3_comparison/figures/efficiency/` (e.g., `train_time_sec.png`, `total_pipeline_time_sec.png`, `test_inference_time_sec.png`). Each plot aggregates every seed/support/config so classical vs. GNN models can be compared metric by metric without clutter.
 
 Use these artifacts in the report or for further analysis notebooks under `q3_comparison/`.
+
+The `q3_comparison/figures/quality/` and `.../efficiency/` folders hold the bar charts referenced in the report (test accuracy/F1/AUC, train/test times, total pipeline time). Each plot groups models by family, while the `summary_by_*.csv` files provide the exact numbers used in those plots.
 
 ---
 
@@ -197,6 +202,7 @@ With both artifacts in hand we directly compare post-hoc GNN explanations (fidel
 - `figures/classic/importance_vs_support.png` and `per_seed_importance_vs_support.png`: illustrate how the top‑K motif importance changes as the mining support varies (overall and per seed) for RandomForest and Linear SVM.
 - `figures/classic/class_label_distribution*.png`: counts of class‑0 vs class‑1 motifs among the top-K importance lists, highlighting which class’s substructures dominate the explanations.
 - `figures/classic/classic_vs_gnn_comparison.png`: ties the two worlds together by plotting mean classical motif importance against mean GNN fidelity⁺ per seed.
+- For the classical models we rely on `classic_motif_explainability.py`, which loads the Q1 feature artifacts and reproduces the best RandomForest, LinearSVM, and (via permutation importance) RBFSVM runs. Per-model/per-seed CSVs under `q4_explainability/results/<model>/seed_<S>/` list the top motifs, their class labels/support counts, and their importance scores, providing intrinsic explanations to compare against the GNN masks.
 
 ---
 
