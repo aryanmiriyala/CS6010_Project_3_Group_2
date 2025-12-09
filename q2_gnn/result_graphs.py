@@ -5,7 +5,7 @@ from os import sep, getcwd, mkdir
 
 results_path = getcwd() + sep + f'q2_gnn' + sep +  f'results'
 graph_path = results_path + sep + 'graphs'
-
+csv_path = results_path + sep + "csv"
 
 num_seeds = ['0', '1', '2']
 
@@ -41,9 +41,13 @@ def build_graphs(results_df, metric_name, columns = [] , metrics = []):
     if(not path.exists(graph_path)):
         mkdir(graph_path)
 
+    if(not path.exists(csv_path)):
+        mkdir(csv_path)
+
     for col in columns:
         format_results = results_df.groupby(by = ['model', col])
         format_results = format_results[metrics].agg('mean')
+        format_results.to_csv(csv_path + sep + f'GNN_{col}_{metric_name}.csv')
 
         ax = format_results.plot(kind='bar', width = 0.8, figsize=(14,14)) 
         metric_set = metric_name
@@ -61,13 +65,28 @@ build_graphs(results_df, 'Test', columns=supports, metrics=test_metrics)
 
 
 ## Get Summary Results
-metrics = ['test_f1']
-format_results = results_df.groupby(by = ['model', 'params'])
-format_results = format_results[metrics].agg('mean')
-format_results.to_csv(graph_path + sep + 'test_results_params.csv')
+quality_metrics = test_metrics[0:-1] + val_metrics[0:-1]
+efficiency_metrics = [test_metrics[-1], val_metrics[-1]]
+all_metrics = quality_metrics + efficiency_metrics
 
-## Get Summary Results
-metrics = ['test_f1']
-format_results = results_df.groupby(by = ['model', 'params', 'seed'])
-format_results = format_results[metrics].agg('mean')
-format_results.to_csv(graph_path + sep + 'test_results_seed.csv')
+format_results = results_df.groupby(by = ['model'])
+
+# Get GCN results
+GCN_results = format_results.get_group('GCN').groupby('params')[all_metrics].agg('mean')
+GCN_results_test = GCN_results.loc[GCN_results[test_metrics].idxmax()]
+
+GCN_results_test['model'] = "GCN"
+model = GCN_results_test.pop('model')
+GCN_results_test.insert(0, 'model', model)
+
+# Get GIN results
+GIN_results = format_results.get_group('GIN').groupby('params')[all_metrics].agg('mean')
+GIN_results_test = GIN_results.loc[GIN_results[test_metrics].idxmax()]
+
+GIN_results_test['model'] = "GIN"
+model = GIN_results_test.pop('model')
+GIN_results_test.insert(0, 'model', model)
+
+results_save = pd.concat([GCN_results_test, GIN_results_test])
+results_save.drop_duplicates(inplace=True)
+results_save.to_csv(graph_path + sep + 'GNN_best_results.csv')
