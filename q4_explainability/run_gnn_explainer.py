@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import argparse
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import pandas as pd
 import torch
@@ -27,9 +28,6 @@ from q2_gnn.training import evaluate, train_epoch  # noqa: E402
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 32
 TRAIN_EPOCHS = 50
-EDGE_KEEP_RATIO = 0.3  # fraction of edges to keep when computing fidelity+
-NUM_EXPLAINED_GRAPHS = 5
-DATA_SPLIT_SEED = 0
 OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 AGGREGATE_CSV = OUTPUT_DIR / "gnn_explainer_metrics.csv"
@@ -59,37 +57,67 @@ def train_model(model: torch.nn.Module, train_loader, val_loader, lr: float) -> 
     evaluate(model, val_loader)
 
 
-def collect_correct_graphs(model: torch.nn.Module, loader, limit: int) -> List[Data]:
+def collect_correct_graphs(model: torch.nn.Module, loaders, limit: int) -> List[Tuple[Data, str]]:
     """Grab correctly classified graphs so explanations are faithful."""
 
-    collected: List[Data] = []
+    collected: List[Tuple[Data, str]] = []
     model.eval()
-    for batch in loader:
-        batch = batch.to(DEVICE)
-        with torch.no_grad():
-            logits = model(batch.x, batch.edge_index, batch.batch)
-            preds = logits.argmax(dim=-1)
-            probs = F.softmax(logits, dim=-1)
-        graphs = batch.to_data_list()
-        for idx, graph in enumerate(graphs):
-            if preds[idx].item() != graph.y.item():
-                continue
-            graph = graph.cpu()
-            graph.pred = preds[idx].cpu()
-            graph.probs = probs[idx].cpu()
-            collected.append(graph)
-            if len(collected) >= limit:
-                return collected
+    for split_name in ("val", "test"):
+        loader = getattr(loaders, split_name)
+        for batch in loader:
+            batch = batch.to(DEVICE)
+            with torch.no_grad():
+                logits = model(batch.x, batch.edge_index, batch.batch)
+                preds = logits.argmax(dim=-1)
+                probs = F.softmax(logits, dim=-1)
+            graphs = batch.to_data_list()
+            for idx, graph in enumerate(graphs):
+                if preds[idx].item() != graph.y.item():
+                    continue
+                graph = graph.cpu()
+                graph.pred = preds[idx].cpu()
+                graph.probs = probs[idx].cpu()
+                collected.append((graph, split_name))
+                if limit >= 0 and len(collected) >= limit:
+                    return collected
     return collected
 
 
-def build_masks(edge_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor] | tuple[None, None]:
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run GNNExplainer for best GNN configs.")
+    parser.add_argument(
+        "--edge-keep-ratios",
+        type=float,
+        nargs="+",
+        default=[0.3],
+        help="Fractions of edges to keep when computing fidelity⁺ (default: 0.3).",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=[0, 1, 2],
+        help="Dataset split seeds to use for training/explaining (default: 0 1 2).",
+    )
+    parser.add_argument(
+        "--max-graphs",
+        type=int,
+        default=5,
+        help=(
+            "Maximum number of correctly classified test graphs to explain per model "
+            "(set to -1 to explain all). Default: 5."
+        ),
+    )
+    return parser.parse_args()
+
+
+def build_masks(edge_mask: torch.Tensor, keep_ratio: float) -> tuple[torch.Tensor, torch.Tensor] | tuple[None, None]:
     """Return boolean masks for (i) edges to keep, (ii) edges to drop."""
 
     num_edges = edge_mask.numel()
     if num_edges < 2:
         return None, None
-    k = max(1, int(round(num_edges * EDGE_KEEP_RATIO)))
+    k = max(1, int(round(num_edges * keep_ratio)))
     if k >= num_edges:
         k = num_edges - 1
     if k <= 0:
@@ -137,11 +165,17 @@ def make_explainer(model: torch.nn.Module) -> Explainer:
     )
 
 
-def explain_graphs(model_name: str, model: torch.nn.Module, graphs: List[Data]) -> List[Dict[str, float]]:
+def explain_graphs(
+    model_name: str,
+    model: torch.nn.Module,
+    graphs: List[Tuple[Data, str]],
+    keep_ratio: float,
+    seed: int,
+) -> List[Dict[str, float]]:
     explainer = make_explainer(model)
     rows: List[Dict[str, float]] = []
 
-    for idx, graph in enumerate(graphs):
+    for idx, (graph, split_name) in enumerate(graphs):
         data = graph.to(DEVICE)
         batch = torch.zeros(data.num_nodes, dtype=torch.long, device=DEVICE)
 
@@ -150,7 +184,7 @@ def explain_graphs(model_name: str, model: torch.nn.Module, graphs: List[Data]) 
         runtime = time.time() - start
 
         edge_mask = explanation.edge_mask.detach().cpu()
-        keep_mask, drop_mask = build_masks(edge_mask)
+        keep_mask, drop_mask = build_masks(edge_mask, keep_ratio)
         if keep_mask is None or drop_mask is None:
             continue
 
@@ -166,6 +200,8 @@ def explain_graphs(model_name: str, model: torch.nn.Module, graphs: List[Data]) 
         rows.append(
             {
                 "model": model_name,
+                "seed": seed,
+                "split": split_name,
                 "graph_idx": idx,
                 "predicted_class": int(graph.pred.item()),
                 "original_prob": orig_prob,
@@ -174,40 +210,66 @@ def explain_graphs(model_name: str, model: torch.nn.Module, graphs: List[Data]) 
                 "sparsity": 1.0 - (keep_mask.sum().item() / edge_mask.numel()),
                 "edge_fraction_kept": keep_mask.sum().item() / edge_mask.numel(),
                 "num_edges": edge_mask.numel(),
+                "edge_keep_ratio": keep_ratio,
                 "runtime_sec": runtime,
             }
         )
     return rows
 
 
-def run_for_model(model_name: str, config: Dict[str, float]) -> List[Dict[str, float]]:
-    dataset, _, loaders = load_mutag(batch_size=BATCH_SIZE, shuffle=True, seed=DATA_SPLIT_SEED)
+def run_for_model(
+    model_name: str,
+    config: Dict[str, float],
+    keep_ratios: list[float],
+    seed: int,
+    max_graphs: int,
+) -> List[Dict[str, float]]:
+    dataset, _, loaders = load_mutag(batch_size=BATCH_SIZE, shuffle=True, seed=seed)
     model = build_model(model_name, config, dataset.num_features, dataset.num_classes)
-    print(f"Training {model_name}...", flush=True)
+    print(f"Training {model_name} (seed={seed})...", flush=True)
     train_model(model, loaders.train, loaders.val, config["lr"])
 
-    graphs = collect_correct_graphs(model, loaders.test, NUM_EXPLAINED_GRAPHS)
+    graphs = collect_correct_graphs(model, loaders, max_graphs)
     if not graphs:
-        print(f"Skipping {model_name}; no correctly classified graphs.", flush=True)
+        print(f"Skipping {model_name} (seed={seed}); no correctly classified graphs.", flush=True)
         return []
 
-    print(f"Explaining {len(graphs)} graphs for {model_name}...", flush=True)
-    rows = explain_graphs(model_name, model, graphs)
+    print(f"Explaining {len(graphs)} graphs for {model_name} (seed={seed})...", flush=True)
+    rows: List[Dict[str, float]] = []
+    for ratio in keep_ratios:
+        rows.extend(explain_graphs(model_name, model, graphs, ratio, seed))
 
     model_dir = OUTPUT_DIR / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
     if rows:
         df = pd.DataFrame(rows)
-        csv_path = model_dir / "gnn_explainer_metrics.csv"
+        seed_dir = model_dir / f"seed_{seed}"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = seed_dir / "gnn_explainer_metrics.csv"
         df.to_csv(csv_path, index=False)
-        print(f"Saved {model_name} explanation metrics to {csv_path} ({len(df)} rows).", flush=True)
+        print(
+            f"Saved {model_name} explanation metrics to {csv_path} ({len(df)} rows).",
+            flush=True,
+        )
     return rows
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
+    if args is None:
+        args = parse_args()
+
     all_rows: List[Dict[str, float]] = []
-    for model_name, config in BEST_CONFIGS.items():
-        all_rows.extend(run_for_model(model_name, config))
+    for seed in args.seeds:
+        for model_name, config in BEST_CONFIGS.items():
+            all_rows.extend(
+                run_for_model(
+                    model_name,
+                    config,
+                    args.edge_keep_ratios,
+                    seed,
+                    args.max_graphs,
+                )
+            )
 
     if not all_rows:
         print("No explanation metrics were produced.")

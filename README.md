@@ -169,7 +169,10 @@ Use these artifacts in the report or for further analysis notebooks under `q3_co
 Run the explainer script to train the best GCN/GIN configurations, generate GNNExplainer masks, and log fidelity/sparsity/runtime metrics:
 
 ```bash
-python q4_explainability/run_gnn_explainer.py
+python q4_explainability/run_gnn_explainer.py \
+    --edge-keep-ratios 0.2 0.3 0.5    # optional: sweep multiple sparsity targets
+    --seeds 0 1 2                     # run explainability for each split seed
+    --max-graphs -1                   # explain every correctly classified test graph
 ```
 
 The script retrains the best configs from Q2 (GCN & GIN), identifies correctly classified test graphs, and uses PyG’s `GNNExplainer` to compute fidelity⁺, fidelity⁻, sparsity, and runtime for each explanation. Metrics are saved per model under:
@@ -179,7 +182,28 @@ The script retrains the best configs from Q2 (GCN & GIN), identifies correctly c
 
 and also aggregated into `q4_explainability/results/gnn_explainer_metrics.csv` for quick comparison.
 
-This lets us compare post-hoc GNN explanations with the self-explainable nature of the classical pipeline: Q1 already surfaces discriminative motifs (frequent subgraphs) and classical models (e.g., Random Forest) provide feature importances per motif. In Q4 we contrast those intrinsic explanations with the masks produced by GNNExplainer (what edges/nodes the GNN relied on) and report fidelity/sparsity trade-offs.
+To document the “self-explainable” classical side we added:
+
+```bash
+python q4_explainability/classic_motif_explainability.py  # optional: customize --seeds, --supports, --top-k
+```
+
+This utility reuses the Q1 feature tensors and the best hyperparameters recorded in `q1_frequent_subgraphs_classic_ml/results/` to retrain Random Forest and Linear SVM models, then exports the top‑K motifs per seed/support/model (feature ranks, class labels, support counts, signed coefficients, and the actual subgraph structure) to `q4_explainability/results/classic_motif_importances.csv`. Those importance lists satisfy the “self-explainable” requirement for classical ML and can be read alongside the GNNExplainer metrics when discussing fidelity vs. sparsity.
+
+With both artifacts in hand we directly compare post-hoc GNN explanations (fidelity⁺/⁻, sparsity, runtime) against the intrinsic motif-level explanations from the classical pipeline. Run `python q4_explainability/plot_explainability.py` to regenerate the figures under `q4_explainability/figures/`, which now include per-seed breakdowns:
+
+- `figures/gnn/fidelity_sufficiency_necessity.png`: shows, for each GCN/GIN seed, how much confidence remains when we keep only the explainer mask (fidelity⁺) versus how much confidence drops when we remove it (fidelity⁻). This directly captures the “sufficiency vs. necessity” discussion required in Q4.
+- `figures/gnn/*_per_seed.png`: line/bar charts for fidelity⁺, fidelity⁻, sparsity, and runtime per seed so we can see how each split behaves.
+- `figures/classic/importance_vs_support.png` and `per_seed_importance_vs_support.png`: illustrate how the top‑K motif importance changes as the mining support varies (overall and per seed) for RandomForest and Linear SVM.
+- `figures/classic/class_label_distribution*.png`: counts of class‑0 vs class‑1 motifs among the top-K importance lists, highlighting which class’s substructures dominate the explanations.
+- `figures/classic/classic_vs_gnn_comparison.png`: ties the two worlds together by plotting mean classical motif importance against mean GNN fidelity⁺ per seed.
+
+---
+
+## Shared Results & Notebooks
+
+- The repository root `results/` directory collects lightweight aggregation tables exported for the report (`classic_ml_all_runs.csv`, `classic_ml_ablation_results.csv`, `gnn_main_results.csv`, `classic_vs_gnn_summary.csv`, etc.). Use these when you only need the distilled metrics without re-running Q1/Q2/Q3.
+- The notebook `Project 3 Classical and GNN v2.ipynb` mirrors the scripted pipelines in an interactive format. It contains exploratory visualizations, trains additional GraphSAGE baselines, and can be used to regenerate illustrative plots (but the scripts above remain the canonical workflow).
 
 ---
 
