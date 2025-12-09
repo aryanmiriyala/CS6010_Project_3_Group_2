@@ -5,7 +5,7 @@ from os import sep, getcwd, mkdir
 
 results_path = getcwd() + sep + f'q1_frequent_subgraphs_classic_ml' + sep +  f'results'
 graph_path = results_path + sep + 'graphs'
-
+csv_path = results_path + sep + 'csv'
 
 num_seeds = ['0', '1', '2']
 supports = ['0.10', '0.20', '0.30', '0.40']
@@ -55,31 +55,38 @@ def rename_param(df, param_dict):
 
 results_df, params_dict = rename_param(results_df, param_dict=param_dict)
 
-with open(graph_path + sep + 'Parameter Key.csv', 'w') as file:
-        file.write("model, parameters\n")
-        for key, value in params_dict.items():
-            file.write(key +  ',' + str(value) + '\n')
-
 ## Create a Visual Representation of Ablations studies for that model
 def build_graphs(results_df, metric_name, supports = [], metrics = []):
     results_df = results_df.groupby(by = 'support')
 
     if(not path.exists(graph_path)):
         mkdir(graph_path)
+    
+    if(not path.exists(csv_path)):
+        mkdir(csv_path)
 
     for support in supports:
         results_format = results_df.get_group(support).groupby('params')[metrics].agg('mean')
-
-        ax = results_format.plot(kind='bar', width = 0.8, figsize=(14,14)) 
+        results_format.to_csv(csv_path + sep + f"classic_ml_{support}.csv")
+        ax = results_format.plot(kind='bar', width = 0.8, figsize=(50,35)) 
         metric_set = metric_name
-        ft_size = 15
+        ft_size = 50
         plt.title(f"Average {metric_set} Metrics across SEEDs for Support {support} - Classic ML Abalation Studies", fontsize = ft_size*1.15)
         plt.xlabel("Model Parameter Set", fontsize = ft_size*1.15)
         plt.ylabel("Mean Metric Value", fontsize = ft_size*1.15)
-        plt.xticks(rotation = 30, fontsize = ft_size)
+        plt.xticks(rotation = 20, fontsize = ft_size)
         plt.yticks(fontsize = ft_size)
         filename = graph_path + sep + f'classic_ml_{support}_{metric_set}.png'
         plt.savefig(filename)
 
+
+build_graphs(results_df, 'Test-Validation', supports=supports, metrics=test_metrics + val_metrics)
 build_graphs(results_df, 'Validation', supports=supports, metrics=val_metrics)
 build_graphs(results_df, 'Test', supports=supports, metrics=test_metrics)
+
+with open(csv_path + sep + 'Parameter Key.csv', 'w') as file:
+        file.write("model, parameters\n")
+        for key, value in params_dict.items():
+            file.write(key +  ',' + str(value) + '\n')
+
+results_df.groupby('params')[test_metrics + val_metrics].agg('mean').to_csv(csv_path + sep + 'validation-test_results.csv')
