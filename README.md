@@ -80,6 +80,8 @@ Located in `./data/MUTAG/`:
 
 ## Q1 – Frequent Subgraph Mining + Classical ML
 
+### Pipeline Overview
+
 Run the following (per-seed artifacts/features stay gitignored; package zipped outputs when needed):
 
 ```bash
@@ -110,9 +112,17 @@ Current snapshot (top-50 motifs per class, count features, single seed example):
 
 Per-seed CSVs under `q1_frequent_subgraphs_classic_ml/results/` provide the full grids.
 
+### Outputs & Visualization
+
+- `results/seed_<S>/classic_ml_support_XX.csv`: exhaustive metrics per model/support/seed.
+- `results/graphs/` & `results/csv/` (from `result_graphs.py`): bar charts and summary tables showing how accuracy, precision, recall, F1, AUC, and inference time evolve with the support threshold.
+- `q4_explainability/results/<model>/seed_<S>/classic_motif_importances.csv`: produced by `classic_motif_explainability.py`, these include the top-K motifs per seed/support for RandomForest, LinearSVM, and RBFSVM with motif metadata (class, support count, structure). They serve as the “self-explainable” evidence used in Q4.
+
 ---
 
 ## Q2 – Graph Neural Networks (GCN & GIN)
+
+### Pipeline Overview
 
 Entry point:
 
@@ -140,11 +150,16 @@ Outputs (per seed):
 
 The per-seed subdirectories mirror how Q1 stores features/results, making downstream aggregation straightforward. Explainability metrics (e.g., GNNExplainer) will join `q2_gnn/results/seed_<S>/` once the best configs are finalized.
 
-When running experiments, use the CSVs and figures in `q2_gnn/results/graphs/` to inspect ablations (hidden dim, layers, dropout, learning rate). Each graph shows how the quality/efficiency metrics respond to individual hyperparameters, averaged over seeds.
+### Outputs & Visualization
+
+- `results/seed_<S>/gcn_results.csv` / `gin_results.csv`: detailed metrics per hyperparameter combo (accuracy, F1, AUC, runtime).
+- `results/graphs/` (populated by `result_graphs.py`): ablation figures for hidden dim, layer count, dropout, and learning rate, plus `GNN_best_results.csv` summarizing the top configs used in later stages.
 
 ---
 
 ## Q3 – Comparison
+
+### Pipeline Overview
 
 Run the aggregator to generate comparison tables/plots:
 
@@ -165,7 +180,11 @@ The script:
 
 Use these artifacts in the report or for further analysis notebooks under `q3_comparison/`.
 
-The `q3_comparison/figures/quality/` and `.../efficiency/` folders hold the bar charts referenced in the report (test accuracy/F1/AUC, train/test times, total pipeline time). Each plot groups models by family, while the `summary_by_*.csv` files provide the exact numbers used in those plots.
+### Outputs & Visualization
+
+- `aggregated_results.csv` + `summary_by_*.csv`: the merged dataset and its aggregated views (config/model/family level).
+- `best_configs.csv`: best validation config per model family along with test metrics and efficiency (used in the report tables).
+- `figures/quality/` & `figures/efficiency/`: bar charts contrasting classical vs GCN/GIN across accuracy/F1/AUC and time metrics. These figures underpin the “quality vs efficiency” narrative in Q3.
 
 ---
 
@@ -203,6 +222,7 @@ With both artifacts in hand we directly compare post-hoc GNN explanations (fidel
 - `figures/classic/class_label_distribution*.png`: counts of class‑0 vs class‑1 motifs among the top-K importance lists, highlighting which class’s substructures dominate the explanations.
 - `figures/classic/classic_vs_gnn_comparison.png`: ties the two worlds together by plotting mean classical motif importance against mean GNN fidelity⁺ per seed.
 - For the classical models we rely on `classic_motif_explainability.py`, which loads the Q1 feature artifacts and reproduces the best RandomForest, LinearSVM, and (via permutation importance) RBFSVM runs. Per-model/per-seed CSVs under `q4_explainability/results/<model>/seed_<S>/` list the top motifs, their class labels/support counts, and their importance scores, providing intrinsic explanations to compare against the GNN masks.
+- `q4_explainability/results/classic_motif_importances.csv` consolidates all classical motif rankings; per-model/per-seed directories hold the slices used for plotting and reporting.
 
 ---
 
