@@ -290,9 +290,117 @@ def plot_classic_metrics(top_k: int = 10) -> None:
         pass
 
 
+def plot_classic_top_motifs_by_seed(top_k_file: Path | None = None) -> None:
+    if top_k_file is None:
+        top_k_file = RESULTS_DIR / "classic_top5_per_class.csv"
+    if not top_k_file.exists():
+        return
+
+    top_df = pd.read_csv(top_k_file)
+    seeds = sorted(top_df["seed"].unique())
+    supports = sorted(top_df["support_ratio"].unique())
+    models = sorted(top_df["model"].unique())
+    colors = {0: "#1f77b4", 1: "#ff7f0e"}
+
+    for seed in seeds:
+        for support in supports:
+            fig, axes = plt.subplots(1, len(models), figsize=(4 * len(models), 4), sharey=False)
+            if len(models) == 1:
+                axes = [axes]
+            has_data = False
+            for ax, model in zip(axes, models):
+                subset = top_df[
+                    (top_df["seed"] == seed)
+                    & (top_df["support_ratio"] == support)
+                    & (top_df["model"] == model)
+                ]
+                if subset.empty:
+                    ax.axis("off")
+                    continue
+
+                plot_rows = []
+                for class_label in sorted(subset["class_label"].unique()):
+                    cls_rows = (
+                        subset[subset["class_label"] == class_label]
+                        .sort_values("importance", ascending=False)
+                        .head(5)
+                    )
+                    plot_rows.append(cls_rows)
+                plot_df = pd.concat(plot_rows, ignore_index=True)
+
+                labels = [f"{row.feature_name}" for row in plot_df.itertuples()]
+                ax.barh(
+                    labels,
+                    plot_df["importance"],
+                    color=[colors.get(int(cls), "#333333") for cls in plot_df["class_label"]],
+                )
+                ax.set_title(model)
+                ax.set_xlabel("Importance")
+                ax.invert_yaxis()
+                has_data = True
+            if has_data:
+                fig.suptitle(f"Seed {seed} — Support {support:.2f}", fontsize=12)
+                fig.tight_layout(rect=(0, 0, 1, 0.92))
+                out_path = (
+                    CLASSIC_FIG_DIR
+                    / f"top_motifs_seed_{seed}_support_{support:.2f}.png"
+                )
+                fig.savefig(out_path, dpi=200)
+            plt.close(fig)
+
+
+def plot_classic_recurring_motifs(summary_path: Path | None = None) -> None:
+    if summary_path is None:
+        summary_path = RESULTS_DIR / "classic_top_motif_summary.csv"
+    if not summary_path.exists():
+        return
+
+    df = pd.read_csv(summary_path)
+    if df.empty:
+        return
+
+    models = sorted(df["model"].unique())
+    colors = {0: "#1f77b4", 1: "#ff7f0e"}
+
+    fig, axes = plt.subplots(2, len(models), figsize=(4 * len(models), 6), sharex=False)
+    if len(models) == 1:
+        axes = np.expand_dims(axes, axis=1)
+    for col, model in enumerate(models):
+        subset = df[df["model"] == model].sort_values(
+            ["class_label", "mean_importance"], ascending=[True, False]
+        )
+        labels = [
+            f"{row.feature_name}\n(class {int(row.class_label)}, n={int(row.appearances)})"
+            for row in subset.itertuples()
+        ]
+        ax_imp = axes[0, col]
+        ax_freq = axes[1, col]
+        ax_imp.barh(
+            labels,
+            subset["mean_importance"],
+            color=[colors.get(int(cls), "#333333") for cls in subset["class_label"]],
+        )
+        ax_imp.set_title(f"{model}: importance")
+        ax_imp.set_xlabel("Mean importance")
+        ax_imp.invert_yaxis()
+
+        ax_freq.barh(
+            labels,
+            subset["appearances"],
+            color=[colors.get(int(cls), "#333333") for cls in subset["class_label"]],
+        )
+        ax_freq.set_title(f"{model}: recurrence")
+        ax_freq.set_xlabel("Appearances across seeds/supports")
+        ax_freq.invert_yaxis()
+    fig.tight_layout()
+    fig.savefig(CLASSIC_FIG_DIR / "recurring_motifs_summary.png", dpi=200)
+    plt.close(fig)
+
+
 def main() -> None:
     plot_gnn_metrics()
     plot_classic_metrics()
+    plot_classic_recurring_motifs()
     print(f"Saved plots under {FIGURES_DIR}")
 
 

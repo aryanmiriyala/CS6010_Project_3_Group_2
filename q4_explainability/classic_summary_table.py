@@ -7,10 +7,10 @@ import pandas as pd
 from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+TOP_K_PER_CLASS = 5
 
 
-def main() -> None:
-    df = pd.read_csv(RESULTS_DIR / "classic_motif_importances.csv")
+def save_seed_level_summary(df: pd.DataFrame) -> None:
     summaries = df.groupby(["seed", "model", "support_ratio"])  # type: ignore[arg-type]
     table = (
         summaries["importance"].mean().reset_index(name="mean_importance")
@@ -38,7 +38,53 @@ def main() -> None:
     merged.sort_values(["seed", "model", "support_ratio"], inplace=True)
     out_path = RESULTS_DIR / "classic_motif_summary.csv"
     merged.to_csv(out_path, index=False)
-    print(f"Saved summary to {out_path}")
+    print(f"Saved seed-level summary to {out_path}")
+
+
+def compute_top_k_per_class(df: pd.DataFrame, top_k: int) -> pd.DataFrame:
+    sorted_df = df.sort_values(
+        ["seed", "support_ratio", "model", "class_label", "importance"],
+        ascending=[True, True, True, True, False],
+    )
+    return (
+        sorted_df.groupby(["seed", "support_ratio", "model", "class_label"])
+        .head(top_k)
+        .reset_index(drop=True)
+    )
+
+
+def save_top_motif_summary(top_df: pd.DataFrame, top_n: int = 3) -> None:
+    agg = (
+        top_df.groupby(["model", "feature_name", "class_label"])
+        .agg(
+            mean_importance=("importance", "mean"),
+            appearances=("feature_name", "count"),
+            seed_coverage=("seed", "nunique"),
+            support_coverage=("support_ratio", "nunique"),
+        )
+        .reset_index()
+    )
+    rows = []
+    for (model, class_label), group in agg.groupby(["model", "class_label"]):
+        subset = group.sort_values(
+            ["appearances", "mean_importance"], ascending=[False, False]
+        ).head(top_n)
+        rows.append(subset.assign(model=model, class_label=class_label))
+    if rows:
+        summary_df = pd.concat(rows, ignore_index=True)
+        out_path = RESULTS_DIR / "classic_top_motif_summary.csv"
+        summary_df.to_csv(out_path, index=False)
+        print(f"Saved recurring-motif summary to {out_path}")
+
+
+def main() -> None:
+    df = pd.read_csv(RESULTS_DIR / "classic_motif_importances.csv")
+    save_seed_level_summary(df)
+    top_k_df = compute_top_k_per_class(df, TOP_K_PER_CLASS)
+    top_k_path = RESULTS_DIR / "classic_top5_per_class.csv"
+    top_k_df.to_csv(top_k_path, index=False)
+    print(f"Saved top-{TOP_K_PER_CLASS} motifs per class to {top_k_path}")
+    save_top_motif_summary(top_k_df, top_n=3)
 
 
 if __name__ == "__main__":
