@@ -214,15 +214,14 @@ python q4_explainability/classic_motif_explainability.py  # optional: customize 
 
 This utility reuses the Q1 feature tensors and the best hyperparameters recorded in `q1_frequent_subgraphs_classic_ml/results/` to retrain Random Forest and Linear SVM models, then exports the top‑K motifs per seed/support/model (feature ranks, class labels, support counts, signed coefficients, and the actual subgraph structure) to `q4_explainability/results/classic_motif_importances.csv`. Those importance lists satisfy the “self-explainable” requirement for classical ML and can be read alongside the GNNExplainer metrics when discussing fidelity vs. sparsity.
 
-With both artifacts in hand we directly compare post-hoc GNN explanations (fidelity⁺/⁻, sparsity, runtime) against the intrinsic motif-level explanations from the classical pipeline. Run `python q4_explainability/plot_explainability.py` to regenerate the figures under `q4_explainability/figures/`, which now include per-seed breakdowns:
+With both artifacts in hand we directly compare post-hoc GNN explanations (fidelity⁺/⁻, sparsity, runtime) against the intrinsic motif-level explanations from the classical pipeline. Run `python q4_explainability/plot_explainability.py` to refresh the key figures under `q4_explainability/figures/`:
 
-- `figures/gnn/fidelity_sufficiency_necessity.png`: shows, for each GCN/GIN seed, how much confidence remains when we keep only the explainer mask (fidelity⁺) versus how much confidence drops when we remove it (fidelity⁻). This directly captures the “sufficiency vs. necessity” discussion required in Q4.
-- `figures/gnn/*_per_seed.png`: line/bar charts for fidelity⁺, fidelity⁻, sparsity, and runtime per seed so we can see how each split behaves.
-- `figures/classic/importance_vs_support.png` and `per_seed_importance_vs_support.png`: illustrate how the top‑K motif importance changes as the mining support varies (overall and per seed) for RandomForest and Linear SVM.
-- `figures/classic/class_label_distribution*.png`: counts of class‑0 vs class‑1 motifs among the top-K importance lists, highlighting which class’s substructures dominate the explanations.
-- `figures/classic/classic_vs_gnn_comparison.png`: ties the two worlds together by plotting mean classical motif importance against mean GNN fidelity⁺ per seed.
-- For the classical models we rely on `classic_motif_explainability.py`, which loads the Q1 feature artifacts and reproduces the best RandomForest, LinearSVM, and (via permutation importance) RBFSVM runs. Per-model/per-seed CSVs under `q4_explainability/results/<model>/seed_<S>/` list the top motifs, their class labels/support counts, and their importance scores, providing intrinsic explanations to compare against the GNN masks.
-- `q4_explainability/results/classic_motif_importances.csv` consolidates all classical motif rankings; per-model/per-seed directories hold the slices used for plotting and reporting.
+- `figures/classic/recurring_motifs_summary.png`: mean importance (top row) and cross-seed/support appearances (bottom row) for the most influential RandomForest, LinearSVM, and RBFSVM motifs.
+- `figures/gnn/gnn_fidelity_vs_seed_ratio.png`: fidelity⁺ (sufficiency) and fidelity⁻ (necessity) across seeds for each edge-keep ratio (0.30/0.50/0.70/0.90) for GCN and GIN.
+- `figures/gnn/gnn_sparsity_vs_seed_ratio.png`: matching sparsity/edge-fraction plots showing how aggressively each model’s explanations prune the graph.
+- `figures/gnn/gnn_runtime_vs_seed_ratio.png`: runtimes per explanation (≈0.3 s), demonstrating the post-hoc cost is modest.
+
+For the classical side we rely on `classic_motif_explainability.py`, which reloads Q1 feature artifacts and retrains the best RandomForest, LinearSVM, and (permutation-based) RBFSVM runs. Per-model/per-seed CSVs under `q4_explainability/results/<model>/seed_<S>/` contain the top motifs with class/support metadata, while `q4_explainability/results/classic_motif_importances.csv` and `classic_top_motif_summary.csv` consolidate those rankings for plotting/reporting.
 
 ---
 
