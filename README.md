@@ -194,7 +194,7 @@ Run the explainer script to train the best GCN/GIN configurations, generate GNNE
 
 ```bash
 python q4_explainability/run_gnn_explainer.py \
-    --edge-keep-ratios 0.2 0.3 0.5    # optional: sweep multiple sparsity targets
+    --edge-keep-ratios 0.3 0.5 0.7    # optional: sweep multiple sparsity targets
     --seeds 0 1 2                     # run explainability for each split seed
     --max-graphs -1                   # explain every correctly classified test graph
 ```

@@ -217,7 +217,7 @@ def main() -> None:
                         bundle["val"][1],
                         n_repeats=5,
                         random_state=42,
-                        n_jobs=-1,
+                        n_jobs=1,
                     )
                     importance_scores = perm.importances_mean
                     top_idx = np.argsort(np.abs(importance_scores))[::-1][: args.top_k]

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 plt.switch_backend("Agg")
@@ -16,8 +17,8 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 FIGURES_DIR = Path(__file__).resolve().parent / "figures"
 GNNS_FIG_DIR = FIGURES_DIR / "gnn"
 CLASSIC_FIG_DIR = FIGURES_DIR / "classic"
-GNNS_FIG_DIR.mkdir(parents=True, exist_ok=True)
-CLASSIC_FIG_DIR.mkdir(parents=True, exist_ok=True)
+for directory in (FIGURES_DIR, GNNS_FIG_DIR, CLASSIC_FIG_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
 MPL_DIR = FIGURES_DIR / ".mplcache"
 MPL_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPL_DIR))
@@ -26,114 +27,112 @@ plt.style.use("seaborn-v0_8")
 plt.rcParams["font.family"] = "DejaVu Sans"
 
 
+def _grouped_ratio_bars(ax, pivot: pd.DataFrame, ratios: list[float], colors: dict[float, str]):
+    seeds = pivot.index.tolist()
+    x = np.arange(len(seeds))
+    width = 0.8 / max(1, len(ratios))
+    bars = []
+    labels = []
+    for idx, ratio in enumerate(ratios):
+        if ratio not in pivot.columns:
+            continue
+        offsets = x + (idx - (len(ratios) - 1) / 2) * width
+        bar = ax.bar(
+            offsets,
+            pivot[ratio].values,
+            width=width * 0.9,
+            color=colors[ratio],
+            label=f"keep={ratio:.2f}",
+        )
+        bars.append(bar)
+        labels.append(f"keep={ratio:.2f}")
+    ax.set_xticks(x)
+    ax.set_xticklabels(seeds)
+    ax.grid(True, axis="y", alpha=0.3)
+    return bars, labels
+
+
 def plot_gnn_metrics() -> None:
     df = pd.read_csv(RESULTS_DIR / "gnn_explainer_metrics.csv")
-    seeds = sorted(df["seed"].unique())
-    metrics = ["fidelity_pos", "fidelity_neg", "sparsity", "runtime_sec"]
+    models = sorted(df["model"].unique())
+    ratios = sorted(df["edge_keep_ratio"].unique())
+    cmap = plt.get_cmap("tab10")
+    colors = {ratio: cmap(i % cmap.N) for i, ratio in enumerate(ratios)}
 
-    # Per-seed summaries
-    for metric in metrics:
-        plt.figure(figsize=(6, 4))
-        for model in df["model"].unique():
-            subset = df[df["model"] == model]
-            means = subset.groupby("seed")[metric].mean()
-            plt.plot(
-                means.index,
-                means.values,
-                marker="o",
-                label=model,
-            )
-        plt.title(f"{metric.replace('_', ' ').title()} per Seed")
-        plt.xlabel("Seed")
-        plt.ylabel(metric.replace("_", " ").title())
-        plt.xticks(seeds)
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(GNNS_FIG_DIR / f"{metric}_per_seed.png", dpi=200)
-        plt.close()
+    # Remove obsolete single-model figures so only combined ones remain.
+    for pattern in ("GCN_*.png", "GIN_*.png"):
+        for stale_path in GNNS_FIG_DIR.glob(pattern):
+            try:
+                stale_path.unlink()
+            except OSError:
+                pass
 
-    # Bar plot: fidelity_pos vs fidelity_neg per model
-    models = df["model"].unique()
-    fidelity_metrics = []
-    for metric in ("fidelity_pos", "fidelity_neg"):
-        for model in models:
-            subset = df[df["model"] == model][metric]
-            fidelity_metrics.append(
-                {
-                    "model": model,
-                    "metric": metric,
-                    "mean": subset.mean(),
-                    "std": subset.std(),
-                }
-            )
-    fidelity_df = pd.DataFrame(fidelity_metrics)
+    metric_specs = [
+        {
+            "metrics": [("fidelity_pos", "Fidelity⁺"), ("fidelity_neg", "Fidelity⁻")],
+            "filename": "gnn_fidelity_vs_seed_ratio",
+        },
+        {
+            "metrics": [("runtime_sec", "Runtime (s)")],
+            "filename": "gnn_runtime_vs_seed_ratio",
+        },
+        {
+            "metrics": [("kept_edges", "Kept edges"), ("num_edges", "Total edges")],
+            "filename": "gnn_edges_vs_seed_ratio",
+        },
+        {
+            "metrics": [("sparsity", "Sparsity"), ("edge_fraction_kept", "Edge fraction kept")],
+            "filename": "gnn_sparsity_vs_seed_ratio",
+        },
+    ]
 
-    plt.figure(figsize=(6, 4))
-    width = 0.35
-    x = range(len(models))
-    for i, metric in enumerate(("fidelity_pos", "fidelity_neg")):
-        metric_df = fidelity_df[fidelity_df["metric"] == metric]
-        offsets = [val + (i - 0.5) * width for val in x]
-        plt.bar(
-            offsets,
-            metric_df["mean"],
-            width=width,
-            label=metric.replace("_", " "),
-            yerr=metric_df["std"],
-            capsize=4,
+    for spec in metric_specs:
+        metrics = spec["metrics"]
+        filename = spec["filename"]
+        total_plots = len(metrics) * len(models)
+        fig, axes = plt.subplots(
+            1,
+            total_plots,
+            figsize=(4 * total_plots, 3),
+            sharey=False,
         )
-    plt.xticks(x, models)
-    plt.title("GNNExplainer Fidelity Metrics")
-    plt.ylabel("Value")
-    plt.ylim(0, 1.05)
-    plt.legend(title="")
-    plt.tight_layout()
-    plt.savefig(GNNS_FIG_DIR / "fidelity_bar.png", dpi=200)
-    plt.close()
+        axes = np.asarray(axes).ravel()
 
-    # Scatter: fidelity_pos vs fidelity_neg colored by model
-    # Sufficiency vs necessity bar chart per seed
-    fig, axes = plt.subplots(len(models), 1, figsize=(6, 3 * len(models)), sharex=True)
-    if len(models) == 1:
-        axes = [axes]
-    for ax, model in zip(axes, models):
-        subset = df[df["model"] == model]
-        sufficiency = subset.groupby("seed")["fidelity_pos"].mean()
-        necessity = subset.groupby("seed")["fidelity_neg"].mean()
-        x = range(len(sufficiency))
-        width = 0.35
-        ax.bar([val - width / 2 for val in x], sufficiency, width=width, label="Fidelity⁺ (keep)", color="#1f77b4")
-        ax.bar([val + width / 2 for val in x], necessity, width=width, label="Fidelity⁻ (drop)", color="#ff7f0e")
-        ax.set_title(f"{model}: Sufficiency vs Necessity per Seed")
-        ax.set_ylabel("Value")
-        ax.set_ylim(0, 1.05)
-        ax.grid(True, axis="y", alpha=0.3)
-        ax.set_xticks(x)
-        ax.set_xticklabels(sufficiency.index)
-    axes[-1].set_xlabel("Seed")
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper right")
-    fig.tight_layout(rect=(0, 0, 0.92, 1))
-    fig.savefig(GNNS_FIG_DIR / "fidelity_sufficiency_necessity.png", dpi=200)
-    plt.close(fig)
-
-    # Runtime bar plot
-    plt.figure(figsize=(5, 4))
-    means = df.groupby("model")["runtime_sec"].mean()
-    stds = df.groupby("model")["runtime_sec"].std()
-    plt.bar(means.index, means.values, yerr=stds.values, capsize=4)
-    plt.title("GNNExplainer Runtime per Graph")
-    plt.ylabel("Seconds")
-    plt.tight_layout()
-    plt.savefig(GNNS_FIG_DIR / "runtime_bar.png", dpi=200)
-    plt.close()
+        legend_handles: list = []
+        legend_labels: list[str] = []
+        ax_idx = 0
+        for metric, ylabel in metrics:
+            for model in models:
+                ax = axes[ax_idx]
+                subset = df[df["model"] == model]
+                seeds = sorted(subset["seed"].unique())
+                pivot = (
+                    subset.groupby(["seed", "edge_keep_ratio"])[metric]
+                    .mean()
+                    .unstack("edge_keep_ratio")
+                    .reindex(seeds)
+                )
+                handles, labels = _grouped_ratio_bars(ax, pivot, ratios, colors)
+                ax.set_title(f"{model} — {ylabel}")
+                ax.set_xlabel("Seed")
+                if ax_idx % len(models) == 0:
+                    ax.set_ylabel(ylabel)
+                else:
+                    ax.set_ylabel("")
+                if not legend_handles and handles:
+                    legend_handles = handles
+                    legend_labels = labels
+                ax_idx += 1
+        if legend_handles:
+            fig.legend(legend_handles, legend_labels, loc="upper center", ncol=max(1, len(legend_handles)))
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        fig.savefig(GNNS_FIG_DIR / f"{filename}.png", dpi=200)
+        plt.close(fig)
 
 
 def plot_classic_metrics(top_k: int = 10) -> None:
     df = pd.read_csv(RESULTS_DIR / "classic_motif_importances.csv")
 
-    # Mean importance vs support ratio
     agg = (
         df.groupby(["model", "support_ratio"])["importance"]
         .agg(["mean", "std"])
@@ -156,102 +155,111 @@ def plot_classic_metrics(top_k: int = 10) -> None:
     plt.savefig(CLASSIC_FIG_DIR / "importance_vs_support.png", dpi=200)
     plt.close()
 
-    # Per-seed importance trends
     seed_agg = (
         df.groupby(["seed", "model", "support_ratio"])["importance"]
         .mean()
         .reset_index()
-        .sort_values("support_ratio")
     )
     seeds = sorted(seed_agg["seed"].unique())
-    num_seeds = len(seeds)
-    fig, axes = plt.subplots(1, num_seeds, figsize=(4 * num_seeds, 3), sharey=True)
-    if num_seeds == 1:
+    support_vals = sorted(seed_agg["support_ratio"].unique())
+    models = sorted(seed_agg["model"].unique())
+    colors = {"LinearSVM": "#1f77b4", "RandomForest": "#ff7f0e", "RBFSVM": "#2ca02c"}
+    fig, axes = plt.subplots(1, len(seeds), figsize=(4 * len(seeds), 3), sharey=True)
+    if len(seeds) == 1:
         axes = [axes]
-    colors = {"LinearSVM": "#1f77b4", "RandomForest": "#ff7f0e"}
+    width = 0.8 / max(1, len(models))
+    x = np.arange(len(support_vals))
     for ax, seed in zip(axes, seeds):
         subset = seed_agg[seed_agg["seed"] == seed]
-        for model in subset["model"].unique():
-            model_slice = subset[subset["model"] == model]
-            ax.plot(
-                model_slice["support_ratio"],
-                model_slice["importance"],
-                marker="o",
-                label=model,
-                color=colors.get(model),
+        for idx, model in enumerate(models):
+            model_slice = (
+                subset[subset["model"] == model]
+                .set_index("support_ratio")
+                .reindex(support_vals)
             )
+            offsets = x + (idx - (len(models) - 1) / 2) * width
+            ax.bar(
+                offsets,
+                model_slice["importance"],
+                width=width * 0.9,
+                color=colors.get(model),
+                label=model if seed == seeds[0] else "",
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"{s:.2f}" for s in support_vals])
         ax.set_title(f"Seed {seed}")
         ax.set_xlabel("Support ratio")
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, axis="y", alpha=0.3)
     axes[0].set_ylabel("Mean importance")
-    handles, labels = axes[-1].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=len(models))
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
     fig.savefig(CLASSIC_FIG_DIR / "per_seed_importance_vs_support.png", dpi=200)
     plt.close(fig)
 
-    # Class-label distribution among top-K motifs per model
     class_counts = (
         df.groupby(["model", "class_label"])
         .size()
         .reset_index(name="count")
     )
-    plt.figure(figsize=(5, 4))
+    plt.figure(figsize=(6, 4))
     models = class_counts["model"].unique()
-    x = range(len(models))
+    x = np.arange(len(models))
     width = 0.35
-    for i, class_label in enumerate(sorted(class_counts["class_label"].unique())):
+    for idx, class_label in enumerate(sorted(class_counts["class_label"].unique())):
         subset = class_counts[class_counts["class_label"] == class_label]
-        offsets = [val + (i - 0.5) * width for val in x]
-        plt.bar(
-            offsets,
-            subset["count"],
-            width=width,
-            label=f"class {class_label}",
-        )
+        offsets = x + (idx - 0.5) * width
+        plt.bar(offsets, subset["count"], width=width, label=f"class {class_label}")
     plt.xticks(x, models)
     plt.title(f"Class Labels among Top-{top_k} Motifs")
     plt.ylabel("Count")
-    plt.legend(title="")
+    plt.legend()
     plt.tight_layout()
     plt.savefig(CLASSIC_FIG_DIR / "class_label_distribution.png", dpi=200)
     plt.close()
 
-    # Class-label distribution per seed
-    seed_class_counts = (
-        df.groupby(["seed", "model", "class_label"])
+    avg_class_counts = (
+        df.groupby(["seed", "model", "support_ratio", "class_label"])
         .size()
         .reset_index(name="count")
+        .groupby(["model", "support_ratio", "class_label"])["count"]
+        .mean()
+        .reset_index()
     )
-    fig, axes = plt.subplots(1, num_seeds, figsize=(4 * num_seeds, 3), sharey=True)
-    if num_seeds == 1:
+    class_labels = sorted(df["class_label"].unique())
+    fig, axes = plt.subplots(1, len(models), figsize=(4 * len(models), 3.5), sharey=True)
+    if len(models) == 1:
         axes = [axes]
-    width = 0.35
-    for ax, seed in zip(axes, seeds):
-        subset = seed_class_counts[seed_class_counts["seed"] == seed]
-        models = subset["model"].unique()
-        x = range(len(models))
-        for i, class_label in enumerate(sorted(subset["class_label"].unique())):
-            class_slice = subset[subset["class_label"] == class_label]
-            offsets = [val + (i - 0.5) * width for val in x]
+    width = 0.8 / max(1, len(class_labels))
+    x = np.arange(len(support_vals))
+    for ax, model in zip(axes, models):
+        subset = avg_class_counts[avg_class_counts["model"] == model]
+        for idx, class_label in enumerate(class_labels):
+            class_slice = (
+                subset[subset["class_label"] == class_label]
+                .set_index("support_ratio")
+                .reindex(support_vals)
+                .fillna(0)
+            )
+            offsets = x + (idx - (len(class_labels) - 1) / 2) * width
             ax.bar(
                 offsets,
                 class_slice["count"],
-                width=width,
-                label=f"class {class_label}" if seed == seeds[0] else "",
+                width=width * 0.9,
+                label=f"class {class_label}" if ax == axes[0] else "",
             )
         ax.set_xticks(x)
-        ax.set_xticklabels(models, rotation=20)
-        ax.set_title(f"Seed {seed}")
+        ax.set_xticklabels([f"{s:.2f}" for s in support_vals], rotation=20)
+        ax.set_title(model)
+        ax.set_xlabel("Support ratio")
         ax.grid(True, axis="y", alpha=0.3)
-    axes[0].set_ylabel("Count")
+    axes[0].set_ylabel("Avg. motif count (top-20)")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2)
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    fig.legend([h for h in handles if h.get_label()], [l for l in labels if l], loc="upper center", ncol=len(class_labels), bbox_to_anchor=(0.5, 0.97))
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
     fig.savefig(CLASSIC_FIG_DIR / "per_seed_class_label_distribution.png", dpi=200)
     plt.close(fig)
 
-    # Classical vs GNN comparative scatter (importance vs support vs fidelity)
     try:
         gnn_df = pd.read_csv(RESULTS_DIR / "gnn_explainer_metrics.csv")
         comp_df = df.groupby(["seed", "model"])["importance"].mean().reset_index()
@@ -260,11 +268,7 @@ def plot_classic_metrics(top_k: int = 10) -> None:
             .mean()
             .reset_index()
         )
-        merge_df = (
-            comp_df.merge(gnn_summary, on="seed", how="outer", suffixes=("_classic", "_gnn"))
-            .dropna(subset=["importance", "fidelity_pos"])
-        )
-
+        merge_df = comp_df.merge(gnn_summary, on="seed", suffixes=("_classic", "_gnn"))
         if not merge_df.empty:
             plt.figure(figsize=(6, 4))
             for seed in merge_df["seed"].unique():
