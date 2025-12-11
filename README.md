@@ -40,7 +40,7 @@ ipykernel
 - `construct_features.py` converts motifs to feature matrices.
 - `train_classic_models.py` trains Random Forest and SVM baselines.
 - `package_outputs.py` zips artifacts/features for sharing.
-- Outputs (artifacts, features, results, archives) are created locally after running the scripts.
+- Outputs (artifacts, features, results) are created locally after running the scripts. Because they are large, they are gitignored; representative bundles are zipped under `archives/`.
 
 ## q2_gnn
 
@@ -116,3 +116,16 @@ python q4_explainability/plot_explainability.py
 ```
 
 Outputs include CSV metrics, PNG plots, archived artifacts, and explainability summaries under the respective module folders. Consult those generated directories along with `results/` and the notebook for the analyses used in the final report.
+# Models and Properties
+
+## Classical Pipeline (Q1)
+  - Models: Random Forest, Linear SVM, RBF SVM.
+  - Properties/features: Frequent subgraph motifs mined with gSpan per class/support threshold; motif occurrence counts or binary indicators per graph; per-support ablation of feature dimensionality, training time, inference time, and quality metrics (accuracy, precision, recall, F1, ROC-AUC).
+
+## Graph Neural Networks (Q2)
+  - Models: GCN and GIN architectures (PyTorch Geometric implementations).
+  - Properties/hyperparameters: hidden dimensions, number of layers, dropout rates, learning rates, training epochs. Each run logs accuracy, macro precision/recall/F1, ROC-AUC, training runtime, and inference time for both validation and test splits.
+
+## Explainability (Q4)
+  - Models: Best-performing GCN and GIN configs plus the top classical baselines.
+  - Properties: GNNExplainer fidelity⁺/fidelity⁻, sparsity (edge keep ratio), runtime per explanation; classical motif importance ranks, support counts, class alignment.
