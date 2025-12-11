@@ -14,14 +14,6 @@ This repository contains our four deliverables for CS6010 Project 3 on the MUTAG
 4. Run explainability analyses for the best GNN models.
 
 The MUTAG graphs (nitroaromatic compounds) live under `data/MUTAG/` in both raw `.txt` and processed `.pt` format; PyTorch Geometric downloads them automatically. Required packages (mirroring `pyrequirements.txt`) are:
-
-- `torch>=2.9.1`
-- `torch_geometric`
-- `scikit-learn>=1.7.2`
-- `ipykernel`
-- `gspan-mining`
-- `pandas`
-
 ---
 
 ## Setup
@@ -53,6 +45,7 @@ Deactivate the virtual environment with `deactivate` when finished.
 - `q3_comparison/` – aggregation utilities + comparison plots/CSVs for Q3.
 - `q4_explainability/` – GNNExplainer workflow and outputs for Q4.
 - `data/` – cached MUTAG tensors (`raw/` + `processed/`).
+- `data_download` & `data_access` - generation and automated download of data
 
 ---
 
@@ -101,16 +94,7 @@ Key details:
 - `package_outputs.py` zips each seed/support’s artifacts and features (e.g., `archives/artifacts_seed_0_support_0.10.zip`) so representative files can be shared without keeping the heavy directories in git.
 - The `archives/` directory therefore contains shareable `.zip` bundles for each seed/support pair, combining both the mined motifs (`artifacts/`) and the derived feature tensors (`features/`). Use those archives when you need to inspect a particular configuration without re-running the mining pipeline.
 
-Current snapshot (top-50 motifs per class, count features, single seed example):
 
-| Support | Best Model | Val Acc | Test Acc | Val F1 | Test F1 | Train Time (s) |
-|---------|------------|---------|----------|--------|---------|----------------|
-| 0.10    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.16 |
-| 0.20    | Linear SVM (C=0.1) | 1.00 | 0.80 | 1.00 | 0.762 | 0.14 |
-| 0.30    | Linear SVM (C=0.1) | 0.94 | 0.80 | 0.935 | 0.780 | 0.14 |
-| 0.40    | Random Forest (100 trees) | 0.89 | 0.75 | 0.862 | 0.715 | 0.10 |
-
-Per-seed CSVs under `q1_frequent_subgraphs_classic_ml/results/` provide the full grids.
 
 ### Outputs & Visualization
 
@@ -149,6 +133,8 @@ Outputs (per seed):
 - `q2_gnn/results/seed_<S>/gin_results.csv`
 
 The per-seed subdirectories mirror how Q1 stores features/results, making downstream aggregation straightforward. Explainability metrics (e.g., GNNExplainer) will join `q2_gnn/results/seed_<S>/` once the best configs are finalized.
+
+Visualizations and summary of seed results are illustrated in `q2_gnn/results/graphs` and `q2_gnn/results/csv`.
 
 ### Outputs & Visualization
 
@@ -229,17 +215,6 @@ For the classical side we rely on `classic_motif_explainability.py`, which reloa
 
 - The repository root `results/` directory collects lightweight aggregation tables exported for the report (`classic_ml_all_runs.csv`, `classic_ml_ablation_results.csv`, `gnn_main_results.csv`, `classic_vs_gnn_summary.csv`, etc.). Use these when you only need the distilled metrics without re-running Q1/Q2/Q3.
 - The notebook `Project 3 Classical and GNN v2.ipynb` mirrors the scripted pipelines in an interactive format. It contains exploratory visualizations, trains additional GraphSAGE baselines, and can be used to regenerate illustrative plots (but the scripts above remain the canonical workflow).
-
----
-
-## Next Steps
-
-1. Re-run Q1 and Q2 pipelines to populate the new per-seed directories and CSVs.
-2. Add Q3 aggregation scripts to summarize the classical vs. GNN ablations.
-3. Integrate GNN explainability workflows into Q4.
-4. Consider exporting trained checkpoints or additional metadata if Q3/Q4 need them.
-
-With the shared seed-aware loader in place, each question can evolve independently while guaranteeing consistent, reproducible splits across experiments.
 
 
 # Results and Conclusions
