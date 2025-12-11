@@ -77,6 +77,8 @@ ipykernel
 6. Run `python q3_comparison/compare_q1_q2.py` to merge all results and export summary visuals.
 7. Run the Q4 scripts to produce explainability metrics for both classical and GNN models.
 
+All scripts were run on a 2020 Macbook Air M1 with 8 GB RAM and 8 cores.
+
 # Setup and Execution
 
 ## Virtual Environment
@@ -129,3 +131,7 @@ Outputs include CSV metrics, PNG plots, archived artifacts, and explainability s
 ## Explainability (Q4)
   - Models: Best-performing GCN and GIN configs plus the top classical baselines.
   - Properties: GNNExplainer fidelity⁺/fidelity⁻, sparsity (edge keep ratio), runtime per explanation; classical motif importance ranks, support counts, class alignment.
+
+# Results and Conclusions
+
+The scripts for all 4 questions run. The outputs for each question (including CSV outputs reports) were used to analyze results. The actual results can be found in our report. 
