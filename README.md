@@ -1,83 +1,118 @@
-# Project 3 – Large-Scale Supervised Graph Learning
+# Project 3 – Group 2
 
-Group 2 · CS 6010 Fall 2025 · MUTAG binary classification
+This is the README file for Project 3 of CS 6010 Data Science Programming.
+Written by: Emily Massie, Aryan Miriyala, Joshua Gabriel, Jashhvanth Tamilselvan Kunthavai, and Kyle Cusimano  
+Due 12/11/2025
 
-## Stack
-- Python 3.11+
-- `pip install -r pyrequirements.txt` (PyTorch, PyTorch Geometric, scikit-learn, gspan-mining, pandas/matplotlib/seaborn, numpy, networkx)
+# Introduction and Requirements
 
-## Setup
-```bash
-python -m venv venv
-source venv/bin/activate                # Windows: venv\Scripts\Activate.ps1
-pip install --upgrade pip
+This repository holds the base code for our classical pipelines, GNN pipelines, dataset download helper, and generated outputs for the MUTAG mutagenicity task. The goal is to mine frequent subgraphs, train classical models on those motifs, train GCN/GIN baselines on the same splits, compare both families, and analyze explanations. All experiments use the MUTAG dataset (188 nitroaromatic molecular graphs) from PyTorch Geometric or Hugging Face (https://huggingface.co/datasets/graphs-datasets/MUTAG). The datasets are downloaded into `data/MUTAG/` via the provided scripts and are gitignored.
+
+The processing code requires:
+
+```
+python 3.11+
+torch>=2.9.1
+torch_geometric>=2.7.0
+scikit-learn>=1.7.2
+gspan-mining
+pandas
+matplotlib
+seaborn
+numpy
+networkx
+ipykernel
+```
+
+# File Path Locations
+
+## data_download
+
+- `download_mutag.py` fetches MUTAG (raw and processed) and places it under `data/MUTAG/`.
+
+## data_access
+
+- `mutag.py` exposes helper functions to build deterministic train/val/test splits and PyG dataloaders shared by every script.
+
+## q1_frequent_subgraphs_classic_ml
+
+- `frequent_subgraph_mining.py` mines motifs per class/support.
+- `construct_features.py` converts motifs to feature matrices.
+- `train_classic_models.py` trains Random Forest and SVM baselines.
+- `package_outputs.py` zips artifacts/features for sharing.
+- Outputs (artifacts, features, results, archives) are created locally after running the scripts.
+
+## q2_gnn
+
+- `run_experiments.py` trains both GCN and GIN models across depth/width/dropout/lr grids.
+- `models.py` defines architectures.
+- `training.py` and `result_graphs.py` include the training loops and plotting helpers.
+- CSV results per seed/model appear under `q2_gnn/results/` after execution.
+
+## q3_comparison
+
+- `compare_q1_q2.py` aggregates every classical and GNN run, exporting summary tables and figures under `q3_comparison/`.
+
+## q4_explainability
+
+- `run_gnn_explainer.py` retrains the best GCN/GIN configs and collects GNNExplainer metrics.
+- `classic_motif_explainability.py` reports the top classical motifs.
+- `plot_explainability.py` regenerates fidelity/sparsity/importances figures.
+
+## data, q\*/results/, results/
+
+- Generated datasets, CSV metrics, plots, and archives live inside these directories once the scripts are executed. They are gitignored but referenced throughout the report.
+
+## Project 3 Classical and GNN v2.ipynb
+
+- Notebook version of the scripted workflows for exploratory analysis.
+
+# Methodology
+
+1. Create and activate a virtual environment.
+2. Install the dependencies from `pyrequirements.txt`.
+3. Run `python data_download/download_mutag.py` to populate `data/MUTAG/`.
+4. Execute the Q1 scripts in order (mining → features → training → packaging) for classical baselines.
+5. Execute `python q2_gnn/run_experiments.py` to collect neural baselines.
+6. Run `python q3_comparison/compare_q1_q2.py` to merge all results and export summary visuals.
+7. Run the Q4 scripts to produce explainability metrics for both classical and GNN models.
+
+# Setup and Execution
+
+## Virtual Environment
+
+macOS/Linux
+
+```
+python -m venv venv && source venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r pyrequirements.txt
-python data_download/download_mutag.py  # (re)builds ./data/MUTAG/
 ```
 
-## Data Access
-`data_access/mutag.py` wraps `torch_geometric.datasets.TUDataset`, applies a deterministic 80/10/10 split per seed, and returns PyG dataloaders for every script below. All pipelines expect the cached tensors in `data/MUTAG/{raw,processed}`.
+Windows PowerShell
 
-### Dataset Snapshot
-- **Source:** MUTAG (TU Dortmund graph benchmark) downloaded via PyG’s `TUDataset` or directly from Hugging Face: https://huggingface.co/datasets/graphs-datasets/MUTAG.
-- **Contents:** 188 nitroaromatic compounds, binary labels (mutagenic/non-mutagenic), node attributes encoding atom type, edge attributes encoding bond type.
-- **Location:** `data/MUTAG/raw/` stores the original `.txt` indicator/graph/label files; `data/MUTAG/processed/` holds PyG tensors regenerated on demand.
-- **Splits:** Every script uses the same seeded 80/10/10 train/val/test division from `data_access/mutag.load_mutag`.
+```
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r pyrequirements.txt
+```
 
-## Pipelines
-Each question has a single entry script; run them with the virtual environment active. All scripts default to seeds `[0,1,2]` and reuse the same splits.
+## Running the Pipelines
 
-### Q1 – Frequent Subgraphs + Classical ML
-```bash
+All commands are launched from the project root with the environment active.
+
+```
+python data_download/download_mutag.py
 python q1_frequent_subgraphs_classic_ml/frequent_subgraph_mining.py
-```
-Discovers class-specific motifs with gSpan and writes them under `artifacts/seed_*`.
-
-```bash
 python q1_frequent_subgraphs_classic_ml/construct_features.py
-```
-Converts mined motifs into feature matrices (counts/indicators) stored in `features/seed_*`.
-
-```bash
 python q1_frequent_subgraphs_classic_ml/train_classic_models.py
-```
-Trains Random Forest plus linear/RBF SVMs on every seed/support pair and logs metrics in `results/seed_*/classic_ml_support_XX.csv`.
-
-```bash
 python q1_frequent_subgraphs_classic_ml/package_outputs.py
-```
-Default flow mines motifs, builds feature matrices with the top motifs per class, trains Random Forest + SVM baselines, and zips artifacts for sharing. Outputs live in `artifacts/`, `features/`, `results/seed_*/`, and `archives/`.
-
-### Q2 – Graph Neural Networks (GCN & GIN)
-```bash
 python q2_gnn/run_experiments.py
-```
-Runs both GCN and GIN sweeps (hidden dims, layers, dropout, learning rate) and writes per-seed CSVs to `q2_gnn/results/seed_*/{gcn,gin}_results.csv`; `result_graphs.py` rebuilds the ablation figures.
-
-### Q3 – Classical vs. GNN Comparison
-```bash
 python q3_comparison/compare_q1_q2.py
-```
-Merges all Q1/Q2 CSVs, computes summary/aggregate tables, and exports both the combined metrics and bar charts (`aggregated_results.csv`, `summary_by_{config,model,family}.csv`, `best_configs.csv`, `figures/`).
-
-### Q4 – Explainability
-```bash
 python q4_explainability/run_gnn_explainer.py
-```
-Retrains the best GCN/GIN configs, generates GNNExplainer masks, and logs fidelity/sparsity/runtime metrics per test graph.
-
-```bash
 python q4_explainability/classic_motif_explainability.py
-```
-Re-trains the best classical models, ranks the most important motifs, and saves CSVs per seed/model.
-
-```bash
 python q4_explainability/plot_explainability.py
 ```
-By default the explainer retrains the best GCN/GIN configs, generates fidelity/sparsity metrics for every correctly classified test graph, extracts classical motif importances, and refreshes the plots under `q4_explainability/results/` and `q4_explainability/figures/`.
 
-## Results Artifacts
-- `results/` (repo root) – filtered CSVs used in the report (classic vs. GNN summaries, ablation tables, etc.).
-- `Project 3 Classical and GNN v2.ipynb` – optional notebook that mirrors the scripted runs and contains spot-check visualizations.
-
-Once the scripts finish, consult the `results/` and `q*/results/` directories or the associated figures for the data referenced in the final write-up.
+Outputs include CSV metrics, PNG plots, archived artifacts, and explainability summaries under the respective module folders. Consult those generated directories along with `results/` and the notebook for the analyses used in the final report.
